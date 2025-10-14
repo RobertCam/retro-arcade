@@ -1,4 +1,4 @@
-// Jezzball game implementation (placeholder)
+// Jezzball game implementation
 class JezzballGame {
     constructor(canvas) {
         this.canvas = canvas;
@@ -6,14 +6,979 @@ class JezzballGame {
         this.width = canvas.width;
         this.height = canvas.height;
         
+        
         // Game state
-        this.gameState = 'menu';
+        this.gameState = 'menu'; // menu, playing, paused, gameOver
         this.score = 0;
         this.lives = 3;
         this.level = 1;
+        this.timeLeft = 60; // 60 seconds per level
         
-        // Draw preview
-        this.drawPreview();
+        // Game objects
+        this.balls = [];
+        this.walls = []; // Completed walls
+        this.currentWall = null;
+        this.isDrawing = false;
+        this.wallDirection = 'horizontal'; // 'horizontal' or 'vertical'
+        this.capturedArea = 0;
+        this.totalArea = this.width * this.height;
+        
+        // Background pattern system
+        this.backgroundPattern = null;
+        this.generateBackgroundPattern();
+        
+        // Effects
+        this.particles = new ParticleSystem();
+        this.screenEffects = new ScreenEffects(canvas);
+        
+        // Input
+        this.keys = {};
+        this.mouse = { x: 0, y: 0 };
+        this.setupInput();
+        
+        // Create initial level
+        this.createLevel();
+        
+        // Start game loop
+        this.lastTime = 0;
+        this.gameLoop = this.gameLoop.bind(this);
+        requestAnimationFrame(this.gameLoop);
+    }
+    
+    generateBackgroundPattern() {
+        const patterns = [
+            // Level 1: Simple dots
+            {
+                type: 'dots',
+                color: '#001122',
+                size: 2,
+                spacing: 30,
+                offset: 0
+            },
+            // Level 2: Grid lines
+            {
+                type: 'grid',
+                color: '#002244',
+                lineWidth: 1,
+                spacing: 25,
+                offset: 0
+            },
+            // Level 3: Diagonal stripes
+            {
+                type: 'stripes',
+                color: '#003366',
+                width: 6,
+                spacing: 20,
+                angle: 45,
+                offset: 0
+            },
+            // Level 4: Hexagonal pattern
+            {
+                type: 'hexagons',
+                color: '#004488',
+                size: 12,
+                spacing: 30,
+                offset: 0
+            },
+            // Level 5: Circuit board
+            {
+                type: 'circuit',
+                color: '#0055aa',
+                lineWidth: 1,
+                spacing: 15,
+                offset: 0
+            },
+            // Level 6: Starfield
+            {
+                type: 'stars',
+                color: '#0066cc',
+                size: 1,
+                density: 0.2,
+                offset: 0
+            },
+            // Level 7: Waves
+            {
+                type: 'waves',
+                color: '#0077dd',
+                amplitude: 8,
+                frequency: 0.015,
+                offset: 0
+            },
+            // Level 8: Neon grid
+            {
+                type: 'neon',
+                color: '#0088ee',
+                glow: 3,
+                spacing: 20,
+                offset: 0
+            },
+            // Level 9: Matrix rain
+            {
+                type: 'matrix',
+                color: '#0099ff',
+                charSize: 6,
+                spacing: 12,
+                offset: 0
+            },
+            // Level 10+: Cosmic
+            {
+                type: 'cosmic',
+                color: '#00aaff',
+                particles: 30,
+                offset: 0
+            }
+        ];
+        
+        // Cycle through patterns based on level
+        const patternIndex = (this.level - 1) % patterns.length;
+        this.backgroundPattern = patterns[patternIndex];
+        
+        // Add some randomization for higher levels
+        if (this.level > 10) {
+            this.backgroundPattern.offset = Math.random() * 1000;
+        }
+    }
+    
+    createLevel() {
+        this.balls = [];
+        this.walls = [];
+        this.currentWall = null;
+        this.isDrawing = false;
+        this.capturedArea = 0;
+        
+        // Create balls based on level (starts with 2, adds 1 per level, max 50 from level 49+)
+        let ballCount = 2 + (this.level - 1);
+        if (this.level >= 49) {
+            ballCount = 50;
+        }
+        
+        // Lives equal number of balls
+        this.lives = ballCount;
+        
+        // Create balls with random positions and velocities
+        for (let i = 0; i < ballCount; i++) {
+            const ball = {
+                x: 50 + Math.random() * (this.width - 100),
+                y: 50 + Math.random() * (this.height - 100),
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 0.5) * 6,
+                radius: 8,
+                color: '#ff0000' // Red balls like original
+            };
+            
+            // Ensure balls don't start too close to edges
+            if (ball.x < 30) ball.x = 30;
+            if (ball.x > this.width - 30) ball.x = this.width - 30;
+            if (ball.y < 30) ball.y = 30;
+            if (ball.y > this.height - 30) ball.y = this.height - 30;
+            
+            this.balls.push(ball);
+        }
+        
+        // Reset timer (60 seconds per level)
+        this.timeLeft = 60;
+    }
+    
+    setupInput() {
+        // Keyboard input
+        document.addEventListener('keydown', (e) => {
+            this.keys[e.code] = true;
+            
+            if (e.code === 'Space') {
+                if (this.gameState === 'menu') {
+                    this.startGame();
+                } else if (this.gameState === 'gameOver') {
+                    this.startGame();
+                }
+            }
+            
+            if (e.code === 'KeyP' && this.gameState === 'playing') {
+                this.togglePause();
+            }
+            
+            // Control key to change wall direction
+            if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+                this.wallDirection = this.wallDirection === 'horizontal' ? 'vertical' : 'horizontal';
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            this.keys[e.code] = false;
+        });
+        
+        // Mouse input for Jezzball controls
+        this.canvas.addEventListener('mousemove', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            this.mouse.x = e.clientX - rect.left;
+            this.mouse.y = e.clientY - rect.top;
+        });
+        
+        this.canvas.addEventListener('mousedown', (e) => {
+            if (this.gameState !== 'playing') return;
+            
+            const rect = this.canvas.getBoundingClientRect();
+            this.mouse.x = e.clientX - rect.left;
+            this.mouse.y = e.clientY - rect.top;
+            
+            if (e.button === 0) { // Left click - start drawing wall
+                if (!this.isDrawing) {
+                    this.startWall(this.mouse.x, this.mouse.y);
+                }
+            } else if (e.button === 2) { // Right click - change direction
+                e.preventDefault();
+                this.wallDirection = this.wallDirection === 'horizontal' ? 'vertical' : 'horizontal';
+            }
+        });
+        
+        this.canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); // Prevent right-click context menu
+        });
+    }
+    
+    startWall(x, y) {
+        this.isDrawing = true;
+        this.currentWall = {
+            clickX: x, // Store original click point
+            clickY: y,
+            startX: x,
+            startY: y,
+            endX: x,
+            endY: y,
+            direction: this.wallDirection,
+            extending: true
+        };
+    }
+    
+    startGame() {
+        this.gameState = 'playing';
+        this.score = 0;
+        this.level = 1;
+        this.generateBackgroundPattern();
+        this.createLevel();
+    }
+    
+    togglePause() {
+        if (this.gameState === 'playing') {
+            this.gameState = 'paused';
+        } else if (this.gameState === 'paused') {
+            this.gameState = 'playing';
+        }
+    }
+    
+    update(deltaTime) {
+        if (this.gameState !== 'playing') return;
+        
+        // Update timer
+        this.timeLeft -= deltaTime / 1000;
+        if (this.timeLeft <= 0) {
+            this.timeUp();
+            return;
+        }
+        
+        // Update current wall if drawing
+        if (this.isDrawing && this.currentWall) {
+            this.updateWall();
+        }
+        
+        // Update balls
+        for (let ball of this.balls) {
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+            
+            // Bounce off walls (canvas edges)
+            if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= this.width) {
+                ball.vx = -ball.vx;
+                ball.x = Math.max(ball.radius, Math.min(this.width - ball.radius, ball.x));
+            }
+            
+            if (ball.y - ball.radius <= 0 || ball.y + ball.radius >= this.height) {
+                ball.vy = -ball.vy;
+                ball.y = Math.max(ball.radius, Math.min(this.height - ball.radius, ball.y));
+            }
+            
+            // Check collision with completed walls
+            for (let wall of this.walls) {
+                if (this.checkBallWallCollision(ball, wall)) {
+                    this.reflectBall(ball, wall);
+                }
+            }
+            
+            // Check collision with current extending wall
+            if (this.currentWall && this.currentWall.extending) {
+                if (this.checkBallWallCollision(ball, this.currentWall)) {
+                    // Ball hit extending wall - cancel wall and lose life
+                    this.cancelWall();
+                    this.lives--;
+                    this.screenEffects.flash('#ff0000', 10);
+                    
+                    if (this.lives <= 0) {
+                        this.gameOver();
+                        return;
+                    }
+                }
+            }
+        }
+        
+        // Update effects
+        this.particles.update();
+        this.screenEffects.update();
+    }
+    
+    updateWall() {
+        if (!this.currentWall) return;
+        
+        const speed = 300; // pixels per second
+        const deltaTime = 16; // approximate frame time
+        const moveDistance = speed * deltaTime / 1000;
+        
+        if (this.currentWall.direction === 'horizontal') {
+            // Extend horizontally in both directions from click point
+            let leftStopped = false;
+            let rightStopped = false;
+            
+            if (this.currentWall.startX > 0) {
+                this.currentWall.startX -= moveDistance;
+                // Check collision with existing walls
+                const collision = this.checkWallCollision(this.currentWall.startX, this.currentWall.clickY, 'left');
+                if (collision) {
+                    this.currentWall.startX = collision.x;
+                    leftStopped = true;
+                }
+                if (this.currentWall.startX <= 0) {
+                    this.currentWall.startX = 0;
+                    leftStopped = true;
+                }
+            } else {
+                leftStopped = true;
+            }
+            
+            if (this.currentWall.endX < this.width) {
+                this.currentWall.endX += moveDistance;
+                // Check collision with existing walls
+                const collision = this.checkWallCollision(this.currentWall.endX, this.currentWall.clickY, 'right');
+                if (collision) {
+                    this.currentWall.endX = collision.x;
+                    rightStopped = true;
+                }
+                if (this.currentWall.endX >= this.width) {
+                    this.currentWall.endX = this.width;
+                    rightStopped = true;
+                }
+            } else {
+                rightStopped = true;
+            }
+            
+            // Complete wall when both ends hit boundaries
+            if (leftStopped && rightStopped) {
+                this.completeWall();
+            }
+        } else {
+            // Extend vertically in both directions from click point
+            let upStopped = false;
+            let downStopped = false;
+            
+            if (this.currentWall.startY > 0) {
+                this.currentWall.startY -= moveDistance;
+                // Check collision with existing walls
+                const collision = this.checkWallCollision(this.currentWall.clickX, this.currentWall.startY, 'up');
+                if (collision) {
+                    this.currentWall.startY = collision.y;
+                    upStopped = true;
+                }
+                if (this.currentWall.startY <= 0) {
+                    this.currentWall.startY = 0;
+                    upStopped = true;
+                }
+            } else {
+                upStopped = true;
+            }
+            
+            if (this.currentWall.endY < this.height) {
+                this.currentWall.endY += moveDistance;
+                // Check collision with existing walls
+                const collision = this.checkWallCollision(this.currentWall.clickX, this.currentWall.endY, 'down');
+                if (collision) {
+                    this.currentWall.endY = collision.y;
+                    downStopped = true;
+                }
+                if (this.currentWall.endY >= this.height) {
+                    this.currentWall.endY = this.height;
+                    downStopped = true;
+                }
+            } else {
+                downStopped = true;
+            }
+            
+            // Complete wall when both ends hit boundaries
+            if (upStopped && downStopped) {
+                this.completeWall();
+            }
+        }
+    }
+    
+    checkWallCollision(x, y, direction) {
+        // Check collision with existing walls - increased tolerance
+        for (let wall of this.walls) {
+            if (wall.direction === 'horizontal') {
+                // Check if point is on horizontal wall
+                if (Math.abs(y - wall.startY) < 8 && x >= wall.startX && x <= wall.endX) {
+                    return { x: x, y: wall.startY };
+                }
+            } else {
+                // Check if point is on vertical wall
+                if (Math.abs(x - wall.startX) < 8 && y >= wall.startY && y <= wall.endY) {
+                    return { x: wall.startX, y: y };
+                }
+            }
+        }
+        return null;
+    }
+    
+    completeWall() {
+        if (!this.currentWall) return;
+        
+        // Add wall to completed walls
+        this.walls.push({
+            startX: this.currentWall.startX,
+            startY: this.currentWall.startY,
+            endX: this.currentWall.endX,
+            endY: this.currentWall.endY,
+            direction: this.currentWall.direction,
+            capturedAreas: [] // Will store areas captured by this wall
+        });
+        
+        // Calculate and fill captured areas
+        this.calculateCapturedAreas();
+        
+        this.currentWall = null;
+        this.isDrawing = false;
+        this.screenEffects.shake(3, 5);
+    }
+    
+    calculateCapturedAreas() {
+        // Simplified area calculation - just count wall length for now
+        const latestWall = this.walls[this.walls.length - 1];
+        let wallLength = 0;
+        
+        if (latestWall.direction === 'horizontal') {
+            wallLength = latestWall.endX - latestWall.startX;
+        } else {
+            wallLength = latestWall.endY - latestWall.startY;
+        }
+        
+        // Add a reasonable amount based on wall length
+        this.capturedArea += wallLength * 200; // Multiply by 200 to make it more realistic
+        
+        // Calculate percentage of total area
+        const capturePercentage = (this.capturedArea / this.totalArea) * 100;
+        
+        // Win condition: 75% of total area (proper Jezzball rule)
+        if (capturePercentage >= 75) {
+            this.levelUp();
+        }
+    }
+    
+    floodFillArea(startX, startY, endX, endY) {
+        // Simple flood fill to find enclosed area
+        let area = 0;
+        const step = 10; // Check every 10 pixels for performance
+        
+        for (let x = startX; x < endX; x += step) {
+            for (let y = startY; y < endY; y += step) {
+                if (this.isPointEnclosed(x, y)) {
+                    area += step * step; // Add area of this grid cell
+                }
+            }
+        }
+        
+        return area;
+    }
+    
+    isPointEnclosed(x, y) {
+        // Check if a point is enclosed by walls and doesn't contain a ball
+        if (this.isPointInBall(x, y)) return false;
+        
+        // Check if point is enclosed by walls (simplified check)
+        let wallsLeft = 0, wallsRight = 0, wallsUp = 0, wallsDown = 0;
+        
+        for (let wall of this.walls) {
+            if (wall.direction === 'horizontal') {
+                if (y > wall.startY && x >= wall.startX && x <= wall.endX) {
+                    wallsUp++;
+                }
+                if (y < wall.startY && x >= wall.startX && x <= wall.endX) {
+                    wallsDown++;
+                }
+            } else {
+                if (x > wall.startX && y >= wall.startY && y <= wall.endY) {
+                    wallsLeft++;
+                }
+                if (x < wall.startX && y >= wall.startY && y <= wall.endY) {
+                    wallsRight++;
+                }
+            }
+        }
+        
+        // Point is enclosed if it has walls on all sides
+        return wallsLeft > 0 && wallsRight > 0 && wallsUp > 0 && wallsDown > 0;
+    }
+    
+    isPointInBall(x, y) {
+        // Check if point is inside any ball
+        for (let ball of this.balls) {
+            const dx = x - ball.x;
+            const dy = y - ball.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < ball.radius) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    calculateFreeArea() {
+        // Calculate total area minus areas occupied by balls
+        const totalArea = this.width * this.height;
+        let ballArea = 0;
+        
+        for (let ball of this.balls) {
+            ballArea += Math.PI * ball.radius * ball.radius;
+        }
+        
+        return totalArea - ballArea;
+    }
+    
+    cancelWall() {
+        this.currentWall = null;
+        this.isDrawing = false;
+        this.screenEffects.shake(8, 15);
+    }
+    
+    calculateWallArea(wall) {
+        // Simplified area calculation - in real Jezzball this would be complex polygon math
+        if (wall.direction === 'horizontal') {
+            return Math.abs(wall.endX - wall.startX) * 10; // Rough estimate
+        } else {
+            return Math.abs(wall.endY - wall.startY) * 10; // Rough estimate
+        }
+    }
+    
+    checkBallWallCollision(ball, wall) {
+        // Simple line-circle collision detection
+        const dx = wall.endX - wall.startX;
+        const dy = wall.endY - wall.startY;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length === 0) return false;
+        
+        const t = Math.max(0, Math.min(1, 
+            ((ball.x - wall.startX) * dx + (ball.y - wall.startY) * dy) / (length * length)
+        ));
+        
+        const closestX = wall.startX + t * dx;
+        const closestY = wall.startY + t * dy;
+        
+        const distance = Math.sqrt(
+            (ball.x - closestX) * (ball.x - closestX) + 
+            (ball.y - closestY) * (ball.y - closestY)
+        );
+        
+        return distance < ball.radius + 2; // Wall thickness
+    }
+    
+    reflectBall(ball, wall) {
+        // Calculate reflection off wall
+        const dx = wall.endX - wall.startX;
+        const dy = wall.endY - wall.startY;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length > 0) {
+            const nx = -dy / length;
+            const ny = dx / length;
+            
+            const dot = ball.vx * nx + ball.vy * ny;
+            ball.vx -= 2 * dot * nx;
+            ball.vy -= 2 * dot * ny;
+            
+            this.screenEffects.shake(2, 3);
+        }
+    }
+    
+    levelUp() {
+        this.level++;
+        this.score += 500 * this.level; // Bonus for completing level
+        this.screenEffects.flash('#00ff00', 15);
+        
+        // Generate new background pattern
+        this.generateBackgroundPattern();
+        
+        this.createLevel();
+    }
+    
+    timeUp() {
+        this.lives--;
+        this.screenEffects.flash('#ff0000', 10);
+        
+        if (this.lives <= 0) {
+            this.gameOver();
+        } else {
+            this.createLevel(); // Restart current level
+        }
+    }
+    
+    gameOver() {
+        this.gameState = 'gameOver';
+        
+        // Check if this is a high score
+        if (highScoreManager.checkHighScore('jezzball', this.score)) {
+            highScoreManager.requestNameEntry('jezzball', this.score);
+        }
+    }
+    
+    drawBackground() {
+        if (!this.backgroundPattern) return;
+        
+        this.ctx.save();
+        this.ctx.fillStyle = this.backgroundPattern.color;
+        this.ctx.strokeStyle = this.backgroundPattern.color;
+        
+        const pattern = this.backgroundPattern;
+        const time = Date.now() * 0.001;
+        
+        switch (pattern.type) {
+            case 'dots':
+                this.ctx.beginPath();
+                for (let x = pattern.offset; x < this.width + pattern.spacing; x += pattern.spacing) {
+                    for (let y = pattern.offset; y < this.height + pattern.spacing; y += pattern.spacing) {
+                        this.ctx.arc(x, y, pattern.size, 0, Math.PI * 2);
+                        this.ctx.moveTo(x + pattern.spacing, y);
+                    }
+                }
+                this.ctx.fill();
+                break;
+                
+            case 'grid':
+                this.ctx.lineWidth = pattern.lineWidth;
+                this.ctx.beginPath();
+                for (let x = pattern.offset; x < this.width; x += pattern.spacing) {
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.height);
+                }
+                for (let y = pattern.offset; y < this.height; y += pattern.spacing) {
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.width, y);
+                }
+                this.ctx.stroke();
+                break;
+                
+            case 'stripes':
+                this.ctx.lineWidth = pattern.width;
+                this.ctx.beginPath();
+                const angle = pattern.angle * Math.PI / 180;
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                for (let i = -this.width; i < this.width + this.height; i += pattern.spacing) {
+                    const x1 = i * cos;
+                    const y1 = i * sin;
+                    const x2 = x1 + this.width * cos;
+                    const y2 = y1 + this.width * sin;
+                    this.ctx.moveTo(x1, y1);
+                    this.ctx.lineTo(x2, y2);
+                }
+                this.ctx.stroke();
+                break;
+                
+            case 'hexagons':
+                this.ctx.lineWidth = 1;
+                for (let x = pattern.offset; x < this.width + pattern.spacing; x += pattern.spacing) {
+                    for (let y = pattern.offset; y < this.height + pattern.spacing; y += pattern.spacing) {
+                        this.ctx.beginPath();
+                        for (let i = 0; i < 6; i++) {
+                            const angle = (i * Math.PI) / 3;
+                            const px = x + pattern.size * Math.cos(angle);
+                            const py = y + pattern.size * Math.sin(angle);
+                            if (i === 0) this.ctx.moveTo(px, py);
+                            else this.ctx.lineTo(px, py);
+                        }
+                        this.ctx.closePath();
+                        this.ctx.stroke();
+                    }
+                }
+                break;
+                
+            case 'circuit':
+                this.ctx.lineWidth = pattern.lineWidth;
+                this.ctx.beginPath();
+                for (let y = pattern.offset; y < this.height; y += pattern.spacing) {
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.width, y);
+                }
+                for (let x = pattern.offset; x < this.width; x += pattern.spacing) {
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.height);
+                }
+                for (let x = pattern.offset; x < this.width; x += pattern.spacing * 2) {
+                    for (let y = pattern.offset; y < this.height; y += pattern.spacing * 2) {
+                        this.ctx.moveTo(x, y);
+                        this.ctx.lineTo(x + pattern.spacing, y + pattern.spacing);
+                    }
+                }
+                this.ctx.stroke();
+                break;
+                
+            case 'stars':
+                this.ctx.beginPath();
+                for (let i = 0; i < this.width * this.height * pattern.density; i++) {
+                    const x = (i * 7 + pattern.offset) % this.width;
+                    const y = (i * 11 + pattern.offset) % this.height;
+                    this.ctx.arc(x, y, pattern.size, 0, Math.PI * 2);
+                    this.ctx.moveTo(x + 1, y);
+                }
+                this.ctx.fill();
+                break;
+                
+            case 'waves':
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                for (let x = 0; x < this.width; x += 2) {
+                    const y = this.height / 2 + Math.sin(x * pattern.frequency + time + pattern.offset) * pattern.amplitude;
+                    if (x === 0) this.ctx.moveTo(x, y);
+                    else this.ctx.lineTo(x, y);
+                }
+                this.ctx.stroke();
+                break;
+                
+            case 'neon':
+                this.ctx.shadowColor = pattern.color;
+                this.ctx.shadowBlur = pattern.glow;
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                for (let x = pattern.offset; x < this.width; x += pattern.spacing) {
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.height);
+                }
+                for (let y = pattern.offset; y < this.height; y += pattern.spacing) {
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.width, y);
+                }
+                this.ctx.stroke();
+                this.ctx.shadowBlur = 0;
+                break;
+                
+            case 'matrix':
+                this.ctx.font = `${pattern.charSize}px Courier New`;
+                const chars = '01';
+                for (let x = pattern.offset; x < this.width; x += pattern.spacing) {
+                    for (let y = pattern.offset; y < this.height; y += pattern.spacing) {
+                        const char = chars[Math.floor(Math.random() * chars.length)];
+                        this.ctx.fillText(char, x, y);
+                    }
+                }
+                break;
+                
+            case 'cosmic':
+                this.ctx.beginPath();
+                for (let i = 0; i < pattern.particles; i++) {
+                    const x = (i * 13 + pattern.offset) % this.width;
+                    const y = (i * 17 + pattern.offset) % this.height;
+                    const size = 1 + Math.sin(time + i) * 2;
+                    this.ctx.arc(x, y, size, 0, Math.PI * 2);
+                    this.ctx.moveTo(x + 1, y);
+                }
+                this.ctx.fill();
+                break;
+        }
+        
+        this.ctx.restore();
+    }
+    
+    draw() {
+        // Clear canvas
+        this.ctx.fillStyle = '#000011';
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        
+        // Draw background pattern
+        this.drawBackground();
+        
+        // Apply screen shake
+        const shake = this.screenEffects.getShakeOffset();
+        this.ctx.save();
+        this.ctx.translate(shake.x, shake.y);
+        
+        // Draw captured areas (black fill)
+        this.ctx.fillStyle = '#000000';
+        for (let wall of this.walls) {
+            if (wall.capturedAreas) {
+                for (let area of wall.capturedAreas) {
+                    this.ctx.fillRect(area.x, area.y, area.width, area.height);
+                }
+            }
+        }
+        
+        // Draw completed walls
+        this.ctx.strokeStyle = '#ffffff';
+        this.ctx.lineWidth = 4;
+        this.ctx.lineCap = 'round';
+        
+        for (let wall of this.walls) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(wall.startX, wall.startY);
+            this.ctx.lineTo(wall.endX, wall.endY);
+            this.ctx.stroke();
+            
+            // Add glow
+            this.ctx.shadowColor = '#ffffff';
+            this.ctx.shadowBlur = 8;
+            this.ctx.beginPath();
+            this.ctx.moveTo(wall.startX, wall.startY);
+            this.ctx.lineTo(wall.endX, wall.endY);
+            this.ctx.stroke();
+            this.ctx.shadowBlur = 0;
+        }
+        
+        // Draw current extending wall
+        if (this.currentWall) {
+            this.ctx.strokeStyle = '#00ffff';
+            this.ctx.lineWidth = 3;
+            this.ctx.setLineDash([8, 4]);
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.currentWall.startX, this.currentWall.startY);
+            this.ctx.lineTo(this.currentWall.endX, this.currentWall.endY);
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            
+            // Add glow for extending wall
+            this.ctx.shadowColor = '#00ffff';
+            this.ctx.shadowBlur = 12;
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.currentWall.startX, this.currentWall.startY);
+            this.ctx.lineTo(this.currentWall.endX, this.currentWall.endY);
+            this.ctx.stroke();
+            this.ctx.shadowBlur = 0;
+            
+            // Draw click point indicator
+            this.ctx.fillStyle = '#ffff00';
+            this.ctx.beginPath();
+            this.ctx.arc(this.currentWall.clickX, this.currentWall.clickY, 4, 0, Math.PI * 2);
+            this.ctx.fill();
+            
+            this.ctx.shadowColor = '#ffff00';
+            this.ctx.shadowBlur = 8;
+            this.ctx.beginPath();
+            this.ctx.arc(this.currentWall.clickX, this.currentWall.clickY, 4, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.shadowBlur = 0;
+        }
+        
+        // Draw cursor preview when not drawing
+        if (!this.isDrawing && this.gameState === 'playing') {
+            this.drawCursorPreview();
+        }
+        
+        // Draw balls (red like original Jezzball)
+        for (let ball of this.balls) {
+            this.ctx.fillStyle = ball.color;
+            this.ctx.beginPath();
+            this.ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            this.ctx.fill();
+            
+            // Add glow
+            this.ctx.shadowColor = ball.color;
+            this.ctx.shadowBlur = 15;
+            this.ctx.beginPath();
+            this.ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.shadowBlur = 0;
+        }
+        
+        this.ctx.restore();
+        
+        // Draw particles
+        this.particles.draw(this.ctx);
+        
+        // Draw UI
+        this.drawUI();
+        
+        // Draw screen effects
+        this.screenEffects.drawFlash();
+    }
+    
+    drawCursorPreview() {
+        // Draw preview line showing where wall would be drawn
+        this.ctx.strokeStyle = '#666666';
+        this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([4, 4]);
+        
+        if (this.wallDirection === 'horizontal') {
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, this.mouse.y);
+            this.ctx.lineTo(this.width, this.mouse.y);
+            this.ctx.stroke();
+        } else {
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.mouse.x, 0);
+            this.ctx.lineTo(this.mouse.x, this.height);
+            this.ctx.stroke();
+        }
+        
+        this.ctx.setLineDash([]);
+        
+        // Draw cursor crosshair
+        this.ctx.strokeStyle = '#ffffff';
+        this.ctx.lineWidth = 1;
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.mouse.x - 10, this.mouse.y);
+        this.ctx.lineTo(this.mouse.x + 10, this.mouse.y);
+        this.ctx.moveTo(this.mouse.x, this.mouse.y - 10);
+        this.ctx.lineTo(this.mouse.x, this.mouse.y + 10);
+        this.ctx.stroke();
+    }
+    
+    drawUI() {
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = '16px Courier New';
+        this.ctx.fillText(`Score: ${Utils.formatScore(this.score)}`, 10, 25);
+        this.ctx.fillText(`Lives: ${this.lives}`, 10, 45);
+        this.ctx.fillText(`Level: ${this.level}`, 10, 65);
+        this.ctx.fillText(`Time: ${Math.ceil(this.timeLeft)}`, 10, 85);
+        
+        // Show capture percentage
+        const capturePercentage = (this.capturedArea / this.totalArea) * 100;
+        this.ctx.fillText(`Captured: ${Math.round(capturePercentage * 100) / 100}%`, 10, 105);
+        
+        // Show wall direction
+        this.ctx.fillText(`Direction: ${this.wallDirection.toUpperCase()}`, 10, 125);
+        
+        // Draw game state messages
+        if (this.gameState === 'menu') {
+            this.ctx.fillStyle = '#00ffff';
+            this.ctx.font = '24px Courier New';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('JEZZBALL', this.width / 2, this.height / 2 - 50);
+            this.ctx.font = '14px Courier New';
+            this.ctx.fillText('Capture 75% of the area!', this.width / 2, this.height / 2 - 20);
+            this.ctx.fillText('Left click: Start wall', this.width / 2, this.height / 2);
+            this.ctx.fillText('Right click or Ctrl: Change direction', this.width / 2, this.height / 2 + 20);
+            this.ctx.fillText('Press SPACE to start', this.width / 2, this.height / 2 + 50);
+            this.ctx.textAlign = 'left';
+        } else if (this.gameState === 'paused') {
+            this.ctx.fillStyle = '#ffff00';
+            this.ctx.font = '24px Courier New';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('PAUSED', this.width / 2, this.height / 2);
+            this.ctx.font = '14px Courier New';
+            this.ctx.fillText('Press P to resume', this.width / 2, this.height / 2 + 30);
+            this.ctx.textAlign = 'left';
+        } else if (this.gameState === 'gameOver') {
+            this.ctx.fillStyle = '#ff0000';
+            this.ctx.font = '24px Courier New';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('GAME OVER', this.width / 2, this.height / 2 - 30);
+            this.ctx.font = '14px Courier New';
+            this.ctx.fillText(`Final Score: ${Utils.formatScore(this.score)}`, this.width / 2, this.height / 2);
+            this.ctx.fillText('Press SPACE to restart', this.width / 2, this.height / 2 + 20);
+            this.ctx.textAlign = 'left';
+        }
     }
     
     drawPreview() {
@@ -50,6 +1015,16 @@ class JezzballGame {
         this.ctx.textAlign = 'center';
         this.ctx.fillText('JEZZBALL', this.width / 2, this.height - 10);
         this.ctx.textAlign = 'left';
+    }
+    
+    gameLoop(currentTime) {
+        const deltaTime = currentTime - this.lastTime;
+        this.lastTime = currentTime;
+        
+        this.update(deltaTime);
+        this.draw();
+        
+        requestAnimationFrame(this.gameLoop);
     }
 }
 
