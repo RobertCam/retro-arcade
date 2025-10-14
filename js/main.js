@@ -158,8 +158,7 @@ function initializeGame(gameName) {
             new BreakoutGame(canvas);
             break;
         case 'jezzball':
-            // new JezzballGame(canvas);
-            showComingSoon('Jezzball');
+            new JezzballGame(canvas);
             break;
         case 'racing':
             // new RacingGame(canvas);
