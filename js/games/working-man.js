@@ -23,8 +23,8 @@ class WorkingManGame {
             height: 32,
             vx: 0,
             vy: 0,
-            speed: 3,
-            jumpPower: 12,
+            speed: 2, // Slower for more strategic gameplay
+            jumpPower: 10, // Reduced jump power
             onGround: false,
             onLadder: false,
             climbing: false,
@@ -41,12 +41,21 @@ class WorkingManGame {
             height: 48,
             vx: 0,
             vy: 0,
-            speed: 1,
+            speed: 0.5, // Slower movement
             direction: -1,
             animFrame: 0,
             animTimer: 0,
             throwingTimer: 0,
-            throwingInterval: 120 // frames between throws
+            throwingInterval: 180 // Longer between throws for more strategic gameplay
+        };
+        
+        // Goal platform for the player to reach
+        this.goalPlatform = {
+            x: this.width - 120,
+            y: 30,
+            width: 100,
+            height: 20,
+            glowTimer: 0
         };
         
         // Game physics
@@ -56,7 +65,7 @@ class WorkingManGame {
         // Level elements
         this.platforms = [];
         this.ladders = [];
-        this.barrels = [];
+        this.moneyBags = []; // Changed from barrels to money bags
         this.hammers = [];
         
         // Animation and effects
@@ -82,7 +91,7 @@ class WorkingManGame {
         // Clear existing level elements
         this.platforms = [];
         this.ladders = [];
-        this.barrels = [];
+        this.moneyBags = []; // Changed from barrels to money bags
         this.hammers = [];
         
         // Generate platforms based on level
@@ -102,13 +111,15 @@ class WorkingManGame {
                 type: 'platform'
             });
             
-            // Add ladders between platforms (50% chance)
-            if (i < platformCount - 1 && Math.random() < 0.5) {
+            // Add ladders between platforms (more strategic placement)
+            if (i < platformCount - 1 && Math.random() < 0.7) {
+                // Place ladder at specific positions, not random
+                const ladderX = x + width - 30; // More precise positioning
                 this.ladders.push({
-                    x: x + width - 20,
-                    y: y - 20,
+                    x: ladderX,
+                    y: y - platformSpacing,
                     width: 16,
-                    height: platformSpacing + 20
+                    height: platformSpacing + 10
                 });
             }
         }
@@ -133,6 +144,11 @@ class WorkingManGame {
         this.oligarch.x = this.width - 100;
         this.oligarch.y = 50;
         this.oligarch.throwingTimer = 0;
+        
+        // Position goal platform
+        this.goalPlatform.x = this.width - 120;
+        this.goalPlatform.y = 30;
+        this.goalPlatform.glowTimer = 0;
     }
     
     setupInput() {
@@ -182,13 +198,13 @@ class WorkingManGame {
         
         this.updatePlayer(deltaTime);
         this.updateOligarch(deltaTime);
-        this.updateBarrels(deltaTime);
+        this.updateMoneyBags(deltaTime);
         this.updateHammers(deltaTime);
         this.updateCollisions();
         this.updateEffects();
         
-        // Check win condition (reach oligarch)
-        if (this.player.y < 100 && this.player.x > this.oligarch.x - 50) {
+        // Check win condition (reach goal platform)
+        if (this.checkCollision(this.player, this.goalPlatform)) {
             this.levelUp();
         }
         
@@ -253,10 +269,10 @@ class WorkingManGame {
             this.oligarch.direction *= -1;
         }
         
-        // Throw barrels
+        // Throw money bags
         this.oligarch.throwingTimer++;
         if (this.oligarch.throwingTimer >= this.oligarch.throwingInterval) {
-            this.throwBarrel();
+            this.throwMoneyBag();
             this.oligarch.throwingTimer = 0;
         }
         
@@ -268,47 +284,48 @@ class WorkingManGame {
         }
     }
     
-    throwBarrel() {
-        this.barrels.push({
+    throwMoneyBag() {
+        this.moneyBags.push({
             x: this.oligarch.x + 20,
             y: this.oligarch.y + 30,
-            width: 16,
+            width: 20,
             height: 16,
-            vx: 2 * this.oligarch.direction,
+            vx: 1.5 * this.oligarch.direction,
             vy: 0,
             rotation: 0,
-            onPlatform: false
+            onPlatform: false,
+            animFrame: 0
         });
     }
     
-    updateBarrels(deltaTime) {
-        for (let i = this.barrels.length - 1; i >= 0; i--) {
-            const barrel = this.barrels[i];
+    updateMoneyBags(deltaTime) {
+        for (let i = this.moneyBags.length - 1; i >= 0; i--) {
+            const moneyBag = this.moneyBags[i];
             
             // Apply gravity
-            barrel.vy += this.gravity;
+            moneyBag.vy += this.gravity;
             
             // Update position
-            barrel.x += barrel.vx;
-            barrel.y += barrel.vy;
-            barrel.rotation += 0.2;
+            moneyBag.x += moneyBag.vx;
+            moneyBag.y += moneyBag.vy;
+            moneyBag.rotation += 0.2;
             
             // Remove if off screen
-            if (barrel.y > this.height || barrel.x < -20 || barrel.x > this.width + 20) {
-                this.barrels.splice(i, 1);
+            if (moneyBag.y > this.height || moneyBag.x < -20 || moneyBag.x > this.width + 20) {
+                this.moneyBags.splice(i, 1);
                 continue;
             }
             
             // Check platform collisions
             for (let platform of this.platforms) {
-                if (this.checkCollision(barrel, platform)) {
-                    barrel.y = platform.y - barrel.height;
-                    barrel.vy = 0;
-                    barrel.onPlatform = true;
+                if (this.checkCollision(moneyBag, platform)) {
+                    moneyBag.y = platform.y - moneyBag.height;
+                    moneyBag.vy = 0;
+                    moneyBag.onPlatform = true;
                     
                     // Roll on platform
                     if (platform.type === 'platform') {
-                        barrel.vx = 1.5 * (barrel.vx > 0 ? 1 : -1);
+                        moneyBag.vx = 1.5 * (moneyBag.vx > 0 ? 1 : -1);
                     }
                 }
             }
@@ -343,20 +360,25 @@ class WorkingManGame {
             }
         }
         
-        // Player ladder collisions
+        // Player ladder collisions (more precise)
+        this.player.onLadder = false;
         for (let ladder of this.ladders) {
-            if (this.checkCollision(this.player, ladder)) {
+            // More precise ladder collision - player must be within ladder bounds
+            if (this.player.x + this.player.width > ladder.x && 
+                this.player.x < ladder.x + ladder.width &&
+                this.player.y + this.player.height > ladder.y &&
+                this.player.y < ladder.y + ladder.height) {
                 this.player.onLadder = true;
                 break;
             }
         }
         
-        // Player barrel collisions
-        for (let i = this.barrels.length - 1; i >= 0; i--) {
-            const barrel = this.barrels[i];
-            if (this.checkCollision(this.player, barrel)) {
+        // Player money bag collisions
+        for (let i = this.moneyBags.length - 1; i >= 0; i--) {
+            const moneyBag = this.moneyBags[i];
+            if (this.checkCollision(this.player, moneyBag)) {
                 this.loseLife();
-                this.barrels.splice(i, 1);
+                this.moneyBags.splice(i, 1);
                 break;
             }
         }
@@ -440,13 +462,6 @@ class WorkingManGame {
         this.ctx.fillStyle = '#1a1a2e';
         this.ctx.fillRect(0, 0, this.width, this.height);
         
-        // Debug: Draw a test rectangle to see if anything is working
-        this.ctx.fillStyle = '#ff0000';
-        this.ctx.fillRect(50, 50, 100, 50);
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = '16px Arial';
-        this.ctx.fillText('TEST', 60, 80);
-        
         // Apply screen effects
         const shake = this.screenEffects.getShakeOffset();
         this.ctx.save();
@@ -460,8 +475,11 @@ class WorkingManGame {
             // Draw ladders
             this.drawLadders();
             
-            // Draw barrels
-            this.drawBarrels();
+            // Draw goal platform
+            this.drawGoalPlatform();
+            
+            // Draw money bags
+            this.drawMoneyBags();
             
             // Draw hammers
             this.drawHammers();
@@ -514,23 +532,52 @@ class WorkingManGame {
         }
     }
     
-    drawBarrels() {
-        for (let barrel of this.barrels) {
+    drawMoneyBags() {
+        for (let moneyBag of this.moneyBags) {
             this.ctx.save();
-            this.ctx.translate(barrel.x + barrel.width/2, barrel.y + barrel.height/2);
-            this.ctx.rotate(barrel.rotation);
+            this.ctx.translate(moneyBag.x + moneyBag.width/2, moneyBag.y + moneyBag.height/2);
+            this.ctx.rotate(moneyBag.rotation);
             
-            // Draw barrel
-            this.ctx.fillStyle = '#8B4513';
-            this.ctx.fillRect(-barrel.width/2, -barrel.height/2, barrel.width, barrel.height);
+            // Draw money bag (golden bag with dollar sign)
+            this.ctx.fillStyle = '#FFD700';
+            this.ctx.fillRect(-moneyBag.width/2, -moneyBag.height/2, moneyBag.width, moneyBag.height);
             
-            // Barrel details
-            this.ctx.strokeStyle = '#654321';
-            this.ctx.lineWidth = 1;
-            this.ctx.strokeRect(-barrel.width/2, -barrel.height/2, barrel.width, barrel.height);
+            // Draw bag details
+            this.ctx.strokeStyle = '#B8860B';
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(-moneyBag.width/2, -moneyBag.height/2, moneyBag.width, moneyBag.height);
+            
+            // Draw dollar sign
+            this.ctx.fillStyle = '#000000';
+            this.ctx.font = 'bold 10px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('$', 0, 3);
+            this.ctx.textAlign = 'left';
             
             this.ctx.restore();
         }
+    }
+    
+    drawGoalPlatform() {
+        // Animate glow effect
+        this.goalPlatform.glowTimer += 0.1;
+        const glowIntensity = Math.sin(this.goalPlatform.glowTimer) * 0.3 + 0.7;
+        
+        // Draw glowing goal platform
+        this.ctx.fillStyle = `rgba(255, 215, 0, ${glowIntensity})`;
+        this.ctx.fillRect(this.goalPlatform.x, this.goalPlatform.y, this.goalPlatform.width, this.goalPlatform.height);
+        
+        // Draw border
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(this.goalPlatform.x, this.goalPlatform.y, this.goalPlatform.width, this.goalPlatform.height);
+        
+        // Draw "GOAL" text
+        this.ctx.fillStyle = '#000000';
+        this.ctx.font = 'bold 14px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('GOAL', this.goalPlatform.x + this.goalPlatform.width/2, this.goalPlatform.y + this.goalPlatform.height/2 + 5);
+        this.ctx.textAlign = 'left';
     }
     
     drawHammers() {
@@ -552,25 +599,64 @@ class WorkingManGame {
     }
     
     drawOligarch() {
-        // Draw oligarch (Monopoly Man + Mr. Peanut hybrid)
-        this.ctx.fillStyle = '#FFD700';
+        // Draw Oligarch (Monopoly Man + Mr. Peanut hybrid)
+        this.ctx.fillStyle = '#000080'; // Dark blue suit
         
         // Body
         this.ctx.fillRect(this.oligarch.x, this.oligarch.y + 20, this.oligarch.width, this.oligarch.height - 20);
         
-        // Top hat
-        this.ctx.fillStyle = '#000000';
+        // Head
+        this.ctx.fillStyle = '#FDBCB4';
         this.ctx.fillRect(this.oligarch.x + 8, this.oligarch.y, this.oligarch.width - 16, 20);
         
-        // Monocle
+        // Top hat
         this.ctx.fillStyle = '#000000';
-        this.ctx.beginPath();
-        this.ctx.arc(this.oligarch.x + 25, this.oligarch.y + 15, 6, 0, Math.PI * 2);
-        this.ctx.fill();
+        this.ctx.fillRect(this.oligarch.x + 6, this.oligarch.y - 8, this.oligarch.width - 12, 8);
         
-        // Mustache
+        // Monocle
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        this.ctx.arc(this.oligarch.x + 25, this.oligarch.y + 8, 4, 0, Math.PI * 2);
+        this.ctx.stroke();
+        
+        // Face details
+        this.ctx.fillStyle = '#000000';
+        // Eyes
+        this.ctx.fillRect(this.oligarch.x + 20, this.oligarch.y + 6, 2, 2);
+        this.ctx.fillRect(this.oligarch.x + 28, this.oligarch.y + 6, 2, 2);
+        // Mustache (curled ends like Mr. Peanut)
         this.ctx.fillStyle = '#8B4513';
-        this.ctx.fillRect(this.oligarch.x + 15, this.oligarch.y + 25, 20, 8);
+        this.ctx.fillRect(this.oligarch.x + 15, this.oligarch.y + 12, 10, 2);
+        
+        // Arms
+        this.ctx.fillStyle = '#FDBCB4';
+        this.ctx.fillRect(this.oligarch.x - 4, this.oligarch.y + 24, 8, 16);
+        this.ctx.fillRect(this.oligarch.x + this.oligarch.width - 4, this.oligarch.y + 24, 8, 16);
+        
+        // Legs
+        this.ctx.fillStyle = '#000080';
+        this.ctx.fillRect(this.oligarch.x + 8, this.oligarch.y + 36, 8, 12);
+        this.ctx.fillRect(this.oligarch.x + 24, this.oligarch.y + 36, 8, 12);
+        
+        // Shoes
+        this.ctx.fillStyle = '#000000';
+        this.ctx.fillRect(this.oligarch.x + 6, this.oligarch.y + 46, 12, 4);
+        this.ctx.fillRect(this.oligarch.x + 22, this.oligarch.y + 46, 12, 4);
+        
+        // Cane
+        this.ctx.strokeStyle = '#8B4513';
+        this.ctx.lineWidth = 3;
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.oligarch.x - 8, this.oligarch.y + 20);
+        this.ctx.lineTo(this.oligarch.x - 8, this.oligarch.y + 40);
+        this.ctx.stroke();
+        
+        // Cane handle
+        this.ctx.fillStyle = '#FFD700';
+        this.ctx.beginPath();
+        this.ctx.arc(this.oligarch.x - 8, this.oligarch.y + 20, 3, 0, Math.PI * 2);
+        this.ctx.fill();
         
         // Animation - bouncing
         if (this.oligarch.animFrame === 1) {
@@ -592,6 +678,15 @@ class WorkingManGame {
         // Hard hat
         this.ctx.fillStyle = '#FFD700';
         this.ctx.fillRect(this.player.x + 2, this.player.y - 4, this.player.width - 4, 8);
+        
+        // Draw face details
+        this.ctx.fillStyle = '#000000';
+        // Eyes
+        this.ctx.fillRect(this.player.x + 6, this.player.y + 4, 2, 2);
+        this.ctx.fillRect(this.player.x + 12, this.player.y + 4, 2, 2);
+        // Mustache
+        this.ctx.fillStyle = '#8B4513';
+        this.ctx.fillRect(this.player.x + 7, this.player.y + 8, 6, 2);
         
         // Arms (animation)
         this.ctx.fillStyle = '#FDBCB4';
