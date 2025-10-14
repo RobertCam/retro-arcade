@@ -456,26 +456,154 @@ class JezzballGame {
     }
     
     calculateCapturedAreas() {
-        // Simplified area calculation - just count wall length for now
-        const latestWall = this.walls[this.walls.length - 1];
-        let wallLength = 0;
+        // Proper Jezzball logic: flood-fill from each ball to find areas NOT containing balls
+        // Goal: reduce balls to 25% of playing field or less
         
-        if (latestWall.direction === 'horizontal') {
-            wallLength = latestWall.endX - latestWall.startX;
-        } else {
-            wallLength = latestWall.endY - latestWall.startY;
+        // Create a grid to track captured areas
+        const gridWidth = Math.floor(this.width / 10);
+        const gridHeight = Math.floor(this.height / 10);
+        const capturedGrid = Array(gridHeight).fill().map(() => Array(gridWidth).fill(false));
+        
+        // Flood fill from each ball position to mark areas containing balls
+        for (let ball of this.balls) {
+            const gridX = Math.floor(ball.x / 10);
+            const gridY = Math.floor(ball.y / 10);
+            this.floodFillFromBall(gridX, gridY, capturedGrid, gridWidth, gridHeight);
         }
         
-        // Add a reasonable amount based on wall length
-        this.capturedArea += wallLength * 200; // Multiply by 200 to make it more realistic
+        // Count captured areas (areas NOT containing balls)
+        let capturedCells = 0;
+        for (let y = 0; y < gridHeight; y++) {
+            for (let x = 0; x < gridWidth; x++) {
+                if (!capturedGrid[y][x]) {
+                    capturedCells++;
+                }
+            }
+        }
         
-        // Calculate percentage of total area
-        const capturePercentage = (this.capturedArea / this.totalArea) * 100;
+        // Calculate percentage of area captured
+        const totalCells = gridWidth * gridHeight;
+        const capturePercentage = (capturedCells / totalCells) * 100;
         
-        // Win condition: 75% of total area (proper Jezzball rule)
+        // Update captured area for display
+        this.capturedArea = capturedCells * 100; // Convert grid cells to pixel area
+        
+        // Win condition: 75% of area captured (balls reduced to 25% or less)
         if (capturePercentage >= 75) {
             this.levelUp();
         }
+    }
+    
+    floodFillFromBall(startX, startY, grid, gridWidth, gridHeight) {
+        // Flood fill to mark areas containing balls
+        const stack = [{x: startX, y: startY}];
+        
+        while (stack.length > 0) {
+            const {x, y} = stack.pop();
+            
+            if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight || grid[y][x]) {
+                continue;
+            }
+            
+            // Check if this cell is blocked by a wall
+            if (this.isCellBlockedByWall(x * 10, y * 10)) {
+                continue;
+            }
+            
+            grid[y][x] = true;
+            
+            // Add neighbors to stack
+            stack.push({x: x + 1, y});
+            stack.push({x: x - 1, y});
+            stack.push({x, y: y + 1});
+            stack.push({x, y: y - 1});
+        }
+    }
+    
+    isCellBlockedByWall(x, y) {
+        // Check if this cell is blocked by any wall
+        for (let wall of this.walls) {
+            if (wall.direction === 'horizontal') {
+                if (Math.abs(y - wall.startY) < 5 && x >= wall.startX && x <= wall.endX) {
+                    return true;
+                }
+            } else {
+                if (Math.abs(x - wall.startX) < 5 && y >= wall.startY && y <= wall.endY) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    calculateEnclosedArea(startX, startY, endX, endY) {
+        // Use flood fill to find enclosed area that doesn't contain balls
+        let area = 0;
+        const step = 20; // Check every 20 pixels for performance
+        
+        for (let x = startX; x < endX; x += step) {
+            for (let y = startY; y < endY; y += step) {
+                if (this.isAreaEnclosed(x, y, endX - startX, endY - startY)) {
+                    area += step * step; // Add area of this grid cell
+                }
+            }
+        }
+        
+        return area;
+    }
+    
+    isAreaEnclosed(x, y, width, height) {
+        // Check if this area is completely enclosed by walls and doesn't contain balls
+        
+        // First check if any balls are in this area
+        for (let ball of this.balls) {
+            if (ball.x >= x && ball.x <= x + width && 
+                ball.y >= y && ball.y <= y + height) {
+                return false; // Area contains a ball, can't be captured
+            }
+        }
+        
+        // Check if area is enclosed by walls on all sides (including canvas edges)
+        let wallsLeft = 0, wallsRight = 0, wallsUp = 0, wallsDown = 0;
+        
+        // Canvas edges count as walls
+        if (x <= 0) wallsLeft++; // Left edge
+        if (x + width >= this.width) wallsRight++; // Right edge  
+        if (y <= 0) wallsUp++; // Top edge
+        if (y + height >= this.height) wallsDown++; // Bottom edge
+        
+        // Check actual walls - simplified logic
+        for (let wall of this.walls) {
+            if (wall.direction === 'horizontal') {
+                // Horizontal wall - check if it's between top and bottom of area
+                if (wall.startY > y && wall.startY < y + height &&
+                    wall.startX <= x && wall.endX >= x + width) {
+                    if (wall.startY < y + height/2) {
+                        wallsUp++;
+                    } else {
+                        wallsDown++;
+                    }
+                }
+            } else {
+                // Vertical wall - check if it's between left and right of area
+                if (wall.startX > x && wall.startX < x + width &&
+                    wall.startY <= y && wall.endY >= y + height) {
+                    if (wall.startX < x + width/2) {
+                        wallsLeft++;
+                    } else {
+                        wallsRight++;
+                    }
+                }
+            }
+        }
+        
+        // Debug: log enclosure check for first few areas
+        if (x < 100 && y < 100) {
+            console.log(`Area ${x},${y}: walls L:${wallsLeft} R:${wallsRight} U:${wallsUp} D:${wallsDown}`);
+        }
+        
+        // Area is captured if it has walls on all sides
+        return wallsLeft > 0 && wallsRight > 0 && wallsUp > 0 && wallsDown > 0;
     }
     
     floodFillArea(startX, startY, endX, endY) {
