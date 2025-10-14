@@ -164,9 +164,9 @@ function initializeGame(gameName) {
             // new RacingGame(canvas);
             showComingSoon('Micro Racing');
             break;
-        case 'workingMan':
-            // new WorkingManGame(canvas);
-            showComingSoon('Working Man vs Oligarch');
+        case 'working-man':
+            console.log('Initializing Working Man game');
+            new WorkingManGame(canvas);
             break;
     }
 }
