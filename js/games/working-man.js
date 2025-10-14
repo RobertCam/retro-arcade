@@ -49,13 +49,14 @@ class WorkingManGame {
             throwingInterval: 180 // Longer between throws for more strategic gameplay
         };
         
-        // Goal platform for the player to reach
-        this.goalPlatform = {
+        // Retirement goal for the player to reach
+        this.retirementGoal = {
             x: this.width - 120,
             y: 30,
             width: 100,
             height: 20,
-            glowTimer: 0
+            glowTimer: 0,
+            type: 'retirement'
         };
         
         // Game physics
@@ -94,14 +95,42 @@ class WorkingManGame {
         this.moneyBags = []; // Changed from barrels to money bags
         this.hammers = [];
         
-        // Generate platforms based on level
-        const platformCount = Math.min(8 + this.level, 15);
-        const platformSpacing = this.height / (platformCount + 2);
+        // Generate platforms with guaranteed path to retirement but with variety
+        const platformCount = Math.min(6 + this.level, 12);
+        const platformSpacing = (this.height - 100) / (platformCount + 1);
         
+        // Create platforms that form a guaranteed path to the top with variety
         for (let i = 0; i < platformCount; i++) {
             const y = this.height - 80 - (i * platformSpacing);
-            const width = 120 + Math.random() * 80;
-            const x = Math.random() * (this.width - width);
+            let x, width;
+            
+            if (i === 0) {
+                // Bottom platform - start position
+                x = 20;
+                width = 150;
+            } else if (i === platformCount - 1) {
+                // Top platform - leads to retirement
+                x = this.width - 150;
+                width = 150;
+            } else {
+                // Middle platforms - create variety while maintaining path
+                const basePattern = i % 3; // Use 3-pattern cycle for more variety
+                const randomOffset = (Math.random() - 0.5) * 40; // Add some randomness
+                
+                if (basePattern === 0) {
+                    // Left side platforms
+                    x = Math.max(30, 50 + randomOffset);
+                    width = 100 + Math.random() * 40;
+                } else if (basePattern === 1) {
+                    // Center platforms
+                    x = this.width/2 - 60 + randomOffset;
+                    width = 120 + Math.random() * 40;
+                } else {
+                    // Right side platforms
+                    x = Math.min(this.width - 150, this.width - 200 + randomOffset);
+                    width = 100 + Math.random() * 40;
+                }
+            }
             
             this.platforms.push({
                 x: x,
@@ -110,17 +139,76 @@ class WorkingManGame {
                 height: 16,
                 type: 'platform'
             });
+        }
+        
+        // Add guaranteed ladders between platforms with smart positioning
+        for (let i = 0; i < platformCount - 1; i++) {
+            const currentPlatform = this.platforms[i];
+            const nextPlatform = this.platforms[i + 1];
             
-            // Add ladders between platforms (more strategic placement)
-            if (i < platformCount - 1 && Math.random() < 0.7) {
-                // Place ladder at specific positions, not random
-                const ladderX = x + width - 30; // More precise positioning
-                this.ladders.push({
-                    x: ladderX,
-                    y: y - platformSpacing,
-                    width: 16,
-                    height: platformSpacing + 10
+            // Calculate the best ladder position to connect platforms
+            let ladderX;
+            const currentCenter = currentPlatform.x + currentPlatform.width / 2;
+            const nextCenter = nextPlatform.x + nextPlatform.width / 2;
+            
+            if (nextCenter > currentCenter) {
+                // Next platform is to the right - place ladder at right end of current
+                ladderX = currentPlatform.x + currentPlatform.width - 20;
+            } else if (nextCenter < currentCenter) {
+                // Next platform is to the left - place ladder at left end of current
+                ladderX = currentPlatform.x + 4;
+            } else {
+                // Platforms are roughly aligned - place ladder at center
+                ladderX = currentCenter - 8;
+            }
+            
+            // Ensure ladder is within platform bounds
+            ladderX = Math.max(currentPlatform.x + 4, 
+                      Math.min(ladderX, currentPlatform.x + currentPlatform.width - 20));
+            
+            this.ladders.push({
+                x: ladderX,
+                y: currentPlatform.y - platformSpacing,
+                width: 16,
+                height: platformSpacing + 10
+            });
+        }
+        
+        // Add some extra platforms for variety (not part of main path)
+        const extraPlatforms = Math.min(2 + Math.floor(this.level / 3), 4);
+        for (let i = 0; i < extraPlatforms; i++) {
+            const y = this.height - 100 - (Math.random() * (this.height - 200));
+            const width = 80 + Math.random() * 60;
+            const x = Math.random() * (this.width - width);
+            
+            // Don't place too close to main path platforms
+            let tooClose = false;
+            for (let platform of this.platforms) {
+                if (Math.abs(y - platform.y) < 50 && 
+                    Math.abs(x - platform.x) < 100) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            if (!tooClose) {
+                this.platforms.push({
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: 16,
+                    type: 'platform'
                 });
+                
+                // Sometimes add ladders to extra platforms
+                if (Math.random() < 0.3) {
+                    this.ladders.push({
+                        x: x + width - 20,
+                        y: y - 30,
+                        width: 16,
+                        height: 40
+                    });
+                }
             }
         }
         
@@ -145,10 +233,10 @@ class WorkingManGame {
         this.oligarch.y = 50;
         this.oligarch.throwingTimer = 0;
         
-        // Position goal platform
-        this.goalPlatform.x = this.width - 120;
-        this.goalPlatform.y = 30;
-        this.goalPlatform.glowTimer = 0;
+        // Position retirement goal
+        this.retirementGoal.x = this.width - 120;
+        this.retirementGoal.y = 30;
+        this.retirementGoal.glowTimer = 0;
     }
     
     setupInput() {
@@ -203,8 +291,8 @@ class WorkingManGame {
         this.updateCollisions();
         this.updateEffects();
         
-        // Check win condition (reach goal platform)
-        if (this.checkCollision(this.player, this.goalPlatform)) {
+        // Check win condition (reach retirement goal)
+        if (this.checkCollision(this.player, this.retirementGoal)) {
             this.levelUp();
         }
         
@@ -227,13 +315,23 @@ class WorkingManGame {
         }
         
         // Climbing ladders
+        // Handle climbing (only when on ladder and pressing up/down)
         if (this.keys['ArrowUp'] || this.keys['KeyW']) {
             if (this.player.onLadder) {
                 this.player.vy = -this.player.speed;
                 this.player.climbing = true;
+                // Prevent horizontal movement while climbing
+                this.player.vx = 0;
             } else if (this.player.onGround) {
                 this.player.vy = -this.player.jumpPower;
                 this.player.onGround = false;
+            }
+        } else if (this.keys['ArrowDown'] || this.keys['KeyS']) {
+            if (this.player.onLadder) {
+                this.player.vy = this.player.speed;
+                this.player.climbing = true;
+                // Prevent horizontal movement while climbing
+                this.player.vx = 0;
             }
         } else {
             this.player.climbing = false;
@@ -360,15 +458,23 @@ class WorkingManGame {
             }
         }
         
-        // Player ladder collisions (more precise)
+        // Player ladder collisions (much more precise)
         this.player.onLadder = false;
         for (let ladder of this.ladders) {
-            // More precise ladder collision - player must be within ladder bounds
-            if (this.player.x + this.player.width > ladder.x && 
-                this.player.x < ladder.x + ladder.width &&
+            // Very precise ladder collision - player must be centered on ladder
+            const ladderCenterX = ladder.x + ladder.width / 2;
+            const playerCenterX = this.player.x + this.player.width / 2;
+            const distanceFromCenter = Math.abs(playerCenterX - ladderCenterX);
+            
+            // Player must be within 8 pixels of ladder center and within ladder height bounds
+            if (distanceFromCenter <= 8 && 
                 this.player.y + this.player.height > ladder.y &&
                 this.player.y < ladder.y + ladder.height) {
                 this.player.onLadder = true;
+                // Snap player to ladder center when climbing
+                if (this.player.climbing) {
+                    this.player.x = ladderCenterX - this.player.width / 2;
+                }
                 break;
             }
         }
@@ -475,8 +581,8 @@ class WorkingManGame {
             // Draw ladders
             this.drawLadders();
             
-            // Draw goal platform
-            this.drawGoalPlatform();
+            // Draw retirement goal
+            this.drawRetirementGoal();
             
             // Draw money bags
             this.drawMoneyBags();
@@ -558,25 +664,56 @@ class WorkingManGame {
         }
     }
     
-    drawGoalPlatform() {
+    drawRetirementGoal() {
         // Animate glow effect
-        this.goalPlatform.glowTimer += 0.1;
-        const glowIntensity = Math.sin(this.goalPlatform.glowTimer) * 0.3 + 0.7;
+        this.retirementGoal.glowTimer += 0.1;
+        const glowIntensity = Math.sin(this.retirementGoal.glowTimer) * 0.3 + 0.7;
         
-        // Draw glowing goal platform
-        this.ctx.fillStyle = `rgba(255, 215, 0, ${glowIntensity})`;
-        this.ctx.fillRect(this.goalPlatform.x, this.goalPlatform.y, this.goalPlatform.width, this.goalPlatform.height);
+        // Draw retirement cottage/house
+        this.ctx.fillStyle = `rgba(139, 69, 19, ${glowIntensity})`; // Brown cottage
+        this.ctx.fillRect(this.retirementGoal.x, this.retirementGoal.y, this.retirementGoal.width, this.retirementGoal.height);
+        
+        // Draw roof
+        this.ctx.fillStyle = `rgba(139, 0, 0, ${glowIntensity})`; // Dark red roof
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.retirementGoal.x - 10, this.retirementGoal.y);
+        this.ctx.lineTo(this.retirementGoal.x + this.retirementGoal.width/2, this.retirementGoal.y - 20);
+        this.ctx.lineTo(this.retirementGoal.x + this.retirementGoal.width + 10, this.retirementGoal.y);
+        this.ctx.closePath();
+        this.ctx.fill();
+        
+        // Draw door
+        this.ctx.fillStyle = `rgba(101, 67, 33, ${glowIntensity})`; // Dark brown door
+        this.ctx.fillRect(this.retirementGoal.x + 30, this.retirementGoal.y + 5, 20, 15);
+        
+        // Draw windows
+        this.ctx.fillStyle = `rgba(135, 206, 235, ${glowIntensity})`; // Sky blue windows
+        this.ctx.fillRect(this.retirementGoal.x + 10, this.retirementGoal.y + 8, 12, 8);
+        this.ctx.fillRect(this.retirementGoal.x + 60, this.retirementGoal.y + 8, 12, 8);
+        
+        // Draw chimney
+        this.ctx.fillStyle = `rgba(105, 105, 105, ${glowIntensity})`; // Dim gray chimney
+        this.ctx.fillRect(this.retirementGoal.x + 70, this.retirementGoal.y - 15, 8, 15);
+        
+        // Draw smoke
+        this.ctx.fillStyle = `rgba(192, 192, 192, ${glowIntensity * 0.7})`;
+        this.ctx.beginPath();
+        this.ctx.arc(this.retirementGoal.x + 74, this.retirementGoal.y - 20, 3, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.beginPath();
+        this.ctx.arc(this.retirementGoal.x + 78, this.retirementGoal.y - 25, 2, 0, Math.PI * 2);
+        this.ctx.fill();
         
         // Draw border
-        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.strokeStyle = '#8B4513';
         this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(this.goalPlatform.x, this.goalPlatform.y, this.goalPlatform.width, this.goalPlatform.height);
+        this.ctx.strokeRect(this.retirementGoal.x, this.retirementGoal.y, this.retirementGoal.width, this.retirementGoal.height);
         
-        // Draw "GOAL" text
+        // Draw "RETIREMENT" text
         this.ctx.fillStyle = '#000000';
-        this.ctx.font = 'bold 14px Arial';
+        this.ctx.font = 'bold 12px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('GOAL', this.goalPlatform.x + this.goalPlatform.width/2, this.goalPlatform.y + this.goalPlatform.height/2 + 5);
+        this.ctx.fillText('RETIREMENT', this.retirementGoal.x + this.retirementGoal.width/2, this.retirementGoal.y - 5);
         this.ctx.textAlign = 'left';
     }
     
@@ -609,15 +746,24 @@ class WorkingManGame {
         this.ctx.fillStyle = '#FDBCB4';
         this.ctx.fillRect(this.oligarch.x + 8, this.oligarch.y, this.oligarch.width - 16, 20);
         
-        // Top hat
+        // Top hat (more prominent)
         this.ctx.fillStyle = '#000000';
-        this.ctx.fillRect(this.oligarch.x + 6, this.oligarch.y - 8, this.oligarch.width - 12, 8);
+        this.ctx.fillRect(this.oligarch.x + 4, this.oligarch.y - 12, this.oligarch.width - 8, 12);
+        // Hat brim
+        this.ctx.fillRect(this.oligarch.x + 2, this.oligarch.y - 4, this.oligarch.width - 4, 4);
         
-        // Monocle
+        // Monocle (more prominent with chain)
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 3;
+        this.ctx.beginPath();
+        this.ctx.arc(this.oligarch.x + 25, this.oligarch.y + 8, 6, 0, Math.PI * 2);
+        this.ctx.stroke();
+        // Monocle chain
         this.ctx.strokeStyle = '#FFD700';
         this.ctx.lineWidth = 2;
         this.ctx.beginPath();
-        this.ctx.arc(this.oligarch.x + 25, this.oligarch.y + 8, 4, 0, Math.PI * 2);
+        this.ctx.moveTo(this.oligarch.x + 31, this.oligarch.y + 8);
+        this.ctx.lineTo(this.oligarch.x + 35, this.oligarch.y + 6);
         this.ctx.stroke();
         
         // Face details
