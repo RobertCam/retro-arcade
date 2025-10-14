@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Arcade</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="arcade-lobby">
+        <header class="lobby-header">
+            <h1>🎮 RETRO ARCADE</h1>
+            <p>Choose your game • No quarters needed</p>
+        </header>
+        
+        <main class="arcade-grid">
+            <div class="arcade-cabinet" data-game="breakout">
+                <div class="cabinet-screen">
+                    <canvas id="breakout-preview" width="240" height="180"></canvas>
+                    <div class="screen-overlay">
+                        <div class="game-title">BREAKOUT</div>
+                        <div class="game-subtitle">Smash bricks!</div>
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="breakout-score">0</span></div>
+                        <button class="scores-btn" data-game="breakout">SCORES</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arcade-cabinet" data-game="jezzball">
+                <div class="cabinet-screen">
+                    <canvas id="jezzball-preview" width="240" height="180"></canvas>
+                    <div class="screen-overlay">
+                        <div class="game-title">JEZZBALL</div>
+                        <div class="game-subtitle">Trap the balls!</div>
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="jezzball-score">0</span></div>
+                        <button class="scores-btn" data-game="jezzball">SCORES</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arcade-cabinet" data-game="racing">
+                <div class="cabinet-screen">
+                    <canvas id="racing-preview" width="240" height="180"></canvas>
+                    <div class="screen-overlay">
+                        <div class="game-title">MICRO RACING</div>
+                        <div class="game-subtitle">Speed demon!</div>
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">BEST: <span id="racing-score">--:--</span></div>
+                        <button class="scores-btn" data-game="racing">SCORES</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arcade-cabinet" data-game="working-man">
+                <div class="cabinet-screen">
+                    <canvas id="working-man-preview" width="240" height="180"></canvas>
+                    <div class="screen-overlay">
+                        <div class="game-title">WORKING MAN</div>
+                        <div class="game-subtitle">vs Oligarch!</div>
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="working-man-score">0</span></div>
+                        <button class="scores-btn" data-game="working-man">SCORES</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <footer class="lobby-footer">
+            <p>High scores saved locally • Press ESC to return to lobby</p>
+        </footer>
+    </div>
+    
+    <!-- High Score Modal -->
+    <div id="scores-modal" class="scores-modal">
+        <div class="scores-content">
+            <div class="scores-header">
+                <h2 id="scores-game-title">HIGH SCORES</h2>
+                <button id="close-scores" class="close-btn">×</button>
+            </div>
+            <div class="scores-list" id="scores-list">
+                <!-- Scores will be populated here -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Name Entry Modal -->
+    <div id="name-entry-modal" class="name-entry-modal">
+        <div class="name-entry-content">
+            <div class="name-entry-header">
+                <h2>NEW HIGH SCORE!</h2>
+                <div class="score-display" id="new-score-display">0</div>
+            </div>
+            <div class="name-entry-body">
+                <p>Enter your initials:</p>
+                <div class="initials-input">
+                    <input type="text" id="initial1" maxlength="1" class="initial-input" placeholder="A">
+                    <input type="text" id="initial2" maxlength="1" class="initial-input" placeholder="A">
+                    <input type="text" id="initial3" maxlength="1" class="initial-input" placeholder="A">
+                </div>
+                <div class="name-entry-buttons">
+                    <button id="save-score" class="save-btn">SAVE SCORE</button>
+                    <button id="skip-score" class="skip-btn">SKIP</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/utils.js"></script>
+    <script src="js/animation.js"></script>
+    <script src="js/games/breakout.js"></script>
+    <script src="js/games/jezzball.js"></script>
+    <script src="js/games/racing.js"></script>
+    <script src="js/games/working-man.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
