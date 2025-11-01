@@ -435,9 +435,8 @@ class JezzballGame {
             if (this.particles) this.particles.update();
             if (this.screenEffects) this.screenEffects.update();
         } else {
-            // Update sprite positions
+            // Update sprite positions (only ball positions, walls updated in drawPixi)
             this.updateBallSprites();
-            this.updateWallSprites();
             if (this.nesEffects && typeof this.nesEffects.update === 'function') {
                 this.nesEffects.update();
             }
@@ -573,11 +572,8 @@ class JezzballGame {
         this.currentWall = null;
         this.isDrawing = false;
         
-        // Update sprites for new wall
-        if (!this.isPreview) {
-            this.updateWallSprites();
-            this.updateCapturedAreaSprites();
-        }
+        // Sprites will be updated in drawPixi() on next frame
+        // No need to update immediately here
         
         if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
             this.screenEffects.shake(3, 5);
@@ -1115,38 +1111,58 @@ class JezzballGame {
     }
     
     updateWallSprites() {
-        if (this.isPreview || !this.spriteManager || !this.graphics) return;
+        if (this.isPreview || !this.graphics) return;
         
-        // Remove old sprites
+        const fgLayer = this.graphics.getLayer('foreground');
+        if (!fgLayer) return;
+        
+        // Remove all old wall sprites (except test line)
         this.wallSprites.forEach(sprite => {
-            if (sprite && sprite.parent) {
+            if (sprite && sprite.parent && (!sprite.userData || !sprite.userData.isTestLine)) {
                 sprite.parent.removeChild(sprite);
             }
         });
         this.wallSprites = [];
         
-        // Create sprites for completed walls
+        // Clear sprite references from walls
+        this.walls.forEach(wall => {
+            wall.sprite = null;
+        });
+        
+        // Create sprites for all walls
         for (let wall of this.walls) {
             const wallGraphics = new PIXI.Graphics();
             
-            // Main wall line with glow
-            wallGraphics.lineStyle(4, 0xffffff, 1);
-            wallGraphics.moveTo(wall.startX, wall.startY);
-            wallGraphics.lineTo(wall.endX, wall.endY);
+            // Calculate wall dimensions
+            const dx = wall.endX - wall.startX;
+            const dy = wall.endY - wall.startY;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx);
             
-            // Outer glow
-            wallGraphics.lineStyle(6, 0xffffff, 0.4);
-            wallGraphics.moveTo(wall.startX, wall.startY);
-            wallGraphics.lineTo(wall.endX, wall.endY);
+            // Draw wall as a filled rectangle instead of line (more reliable rendering)
+            wallGraphics.beginFill(0xffffff, 1.0); // Bright white
+            // Draw a rotated rectangle for the wall
+            const wallThickness = 10;
+            wallGraphics.drawRect(0, -wallThickness / 2, length, wallThickness);
+            wallGraphics.endFill();
             
-            // Main line again on top
-            wallGraphics.lineStyle(4, 0xffffff, 1);
-            wallGraphics.moveTo(wall.startX, wall.startY);
-            wallGraphics.lineTo(wall.endX, wall.endY);
+            // Position and rotate
+            wallGraphics.x = wall.startX;
+            wallGraphics.y = wall.startY;
+            wallGraphics.rotation = angle;
             
+            // Ensure sprite is visible
+            wallGraphics.visible = true;
+            wallGraphics.alpha = 1.0;
+            
+            // Use same method as balls
             this.graphics.addToLayer(wallGraphics, 'foreground');
             this.wallSprites.push(wallGraphics);
             wall.sprite = wallGraphics;
+        }
+        
+        if (this.walls.length > 0) {
+            console.log(`Updated ${this.walls.length} wall sprites, fgLayer has ${fgLayer.children.length} children`);
         }
     }
     
@@ -1196,55 +1212,55 @@ class JezzballGame {
         const wallGraphics = new PIXI.Graphics();
         
         // Dashed line for extending wall
-        const length = Math.sqrt(
-            Math.pow(this.currentWall.endX - this.currentWall.startX, 2) +
-            Math.pow(this.currentWall.endY - this.currentWall.startY, 2)
-        );
+        const dx = this.currentWall.endX - this.currentWall.startX;
+        const dy = this.currentWall.endY - this.currentWall.startY;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
         
-        // Draw dashed line
-        const dashLength = 8;
-        const gapLength = 4;
-        const segments = Math.floor(length / (dashLength + gapLength));
-        
-        wallGraphics.lineStyle(3, 0x00ffff, 1);
-        for (let i = 0; i < segments; i++) {
-            const startPercent = (i * (dashLength + gapLength)) / length;
-            const endPercent = ((i * (dashLength + gapLength)) + dashLength) / length;
+        if (length > 0) {
+            // Draw dashed wall as filled rectangles
+            const dashLength = 12;
+            const gapLength = 6;
+            const segments = Math.floor(length / (dashLength + gapLength));
+            const wallThickness = 6;
             
-            const startX = this.currentWall.startX + (this.currentWall.endX - this.currentWall.startX) * startPercent;
-            const startY = this.currentWall.startY + (this.currentWall.endY - this.currentWall.startY) * startPercent;
-            const endX = this.currentWall.startX + (this.currentWall.endX - this.currentWall.startX) * endPercent;
-            const endY = this.currentWall.startY + (this.currentWall.endY - this.currentWall.startY) * endPercent;
-            
-            if (i === 0) {
-                wallGraphics.moveTo(startX, startY);
+            wallGraphics.beginFill(0x00ffff, 1.0); // Bright cyan
+            for (let i = 0; i < segments; i++) {
+                const startPercent = (i * (dashLength + gapLength)) / length;
+                const dashStartX = startPercent * length;
+                const dashEndX = Math.min((startPercent * length) + dashLength, length);
+                
+                wallGraphics.drawRect(dashStartX, -wallThickness / 2, dashEndX - dashStartX, wallThickness);
             }
-            wallGraphics.lineTo(endX, endY);
-            wallGraphics.moveTo(endX + (this.currentWall.endX - this.currentWall.startX) * (gapLength / length),
-                                 endY + (this.currentWall.endY - this.currentWall.startY) * (gapLength / length));
+            wallGraphics.endFill();
+            
+            // Position and rotate
+            wallGraphics.x = this.currentWall.startX;
+            wallGraphics.y = this.currentWall.startY;
+            wallGraphics.rotation = angle;
         }
-        
-        // Glow effect
-        wallGraphics.lineStyle(5, 0x00ffff, 0.5);
-        wallGraphics.moveTo(this.currentWall.startX, this.currentWall.startY);
-        wallGraphics.lineTo(this.currentWall.endX, this.currentWall.endY);
         
         wallContainer.addChild(wallGraphics);
         
-        // Click point indicator
+        // Click point indicator - make it VERY bright and visible
         const clickIndicator = new PIXI.Graphics();
-        clickIndicator.beginFill(0xffff00, 1);
-        clickIndicator.drawCircle(4, 4, 4);
+        // Bright yellow circle - fully opaque
+        clickIndicator.beginFill(0xffff00, 1.0);
+        clickIndicator.drawCircle(0, 0, 8); // Larger circle
         clickIndicator.endFill();
         
-        // Glow for click indicator
-        clickIndicator.lineStyle(2, 0xffff00, 0.6);
-        clickIndicator.drawCircle(4, 4, 6);
+        clickIndicator.x = this.currentWall.clickX;
+        clickIndicator.y = this.currentWall.clickY;
+        clickIndicator.visible = true;
+        clickIndicator.alpha = 1.0;
         
-        clickIndicator.x = this.currentWall.clickX - 4;
-        clickIndicator.y = this.currentWall.clickY - 4;
         wallContainer.addChild(clickIndicator);
         
+        // Ensure visibility
+        wallContainer.visible = true;
+        wallContainer.alpha = 1.0;
+        
+        // Use same method as balls
         this.graphics.addToLayer(wallContainer, 'foreground');
         this.currentWallSprite = wallContainer;
     }
@@ -1257,70 +1273,115 @@ class JezzballGame {
             this.cursorPreviewSprite.parent.removeChild(this.cursorPreviewSprite);
         }
         
-        if (this.isDrawing || this.gameState !== 'playing') {
+        // Only show cursor when playing and not actively drawing a wall
+        // But we still want to show it when not drawing, even if a wall is being extended
+        if (this.gameState !== 'playing') {
             this.cursorPreviewSprite = null;
             return;
         }
         
         const previewContainer = new PIXI.Container();
         
-        // Preview line (dashed)
+        // Preview line - draw as filled rectangles instead of lines
         const previewLine = new PIXI.Graphics();
-        previewLine.lineStyle(2, 0x666666, 0.8);
         
-        let startX, startY, endX, endY;
+        let startX, startY, length;
+        const lineThickness = 4;
+        
         if (this.wallDirection === 'horizontal') {
             startX = 0;
-            startY = this.mouse.y;
-            endX = this.width;
-            endY = this.mouse.y;
+            startY = this.mouse.y - lineThickness / 2;
+            length = this.width;
+            // Draw dashed horizontal line as rectangles
+            previewLine.beginFill(0xffff00, 1.0); // Bright yellow
+            const dashLength = 8;
+            const gapLength = 4;
+            const segments = Math.floor(length / (dashLength + gapLength));
+            for (let i = 0; i < segments; i++) {
+                const x = i * (dashLength + gapLength);
+                previewLine.drawRect(x, startY, dashLength, lineThickness);
+            }
+            previewLine.endFill();
         } else {
-            startX = this.mouse.x;
+            startX = this.mouse.x - lineThickness / 2;
             startY = 0;
-            endX = this.mouse.x;
-            endY = this.height;
-        }
-        
-        // Draw dashed line manually
-        const dashLength = 4;
-        const gapLength = 4;
-        const length = this.wallDirection === 'horizontal' ? this.width : this.height;
-        const segments = Math.floor(length / (dashLength + gapLength));
-        
-        for (let i = 0; i < segments; i++) {
-            const startPercent = (i * (dashLength + gapLength)) / length;
-            const endPercent = ((i * (dashLength + gapLength)) + dashLength) / length;
-            
-            const segStartX = startX + (endX - startX) * startPercent;
-            const segStartY = startY + (endY - startY) * startPercent;
-            const segEndX = startX + (endX - startX) * endPercent;
-            const segEndY = startY + (endY - startY) * endPercent;
-            
-            previewLine.moveTo(segStartX, segStartY);
-            previewLine.lineTo(segEndX, segEndY);
+            length = this.height;
+            // Draw dashed vertical line as rectangles
+            previewLine.beginFill(0xffff00, 1.0); // Bright yellow
+            const dashLength = 8;
+            const gapLength = 4;
+            const segments = Math.floor(length / (dashLength + gapLength));
+            for (let i = 0; i < segments; i++) {
+                const y = i * (dashLength + gapLength);
+                previewLine.drawRect(startX, y, lineThickness, dashLength);
+            }
+            previewLine.endFill();
         }
         
         previewContainer.addChild(previewLine);
         
-        // Crosshair
+        // Crosshair - draw as filled rectangles
         const crosshair = new PIXI.Graphics();
-        crosshair.lineStyle(1, 0xffffff, 1);
-        crosshair.moveTo(this.mouse.x - 10, this.mouse.y);
-        crosshair.lineTo(this.mouse.x + 10, this.mouse.y);
-        crosshair.moveTo(this.mouse.x, this.mouse.y - 10);
-        crosshair.lineTo(this.mouse.x, this.mouse.y + 10);
+        crosshair.beginFill(0xffffff, 1.0); // Bright white
+        // Horizontal line
+        crosshair.drawRect(this.mouse.x - 15, this.mouse.y - 1, 30, 2);
+        // Vertical line
+        crosshair.drawRect(this.mouse.x - 1, this.mouse.y - 15, 2, 30);
+        crosshair.endFill();
         
         previewContainer.addChild(crosshair);
         
+        // Ensure visibility
+        previewContainer.visible = true;
+        previewContainer.alpha = 1.0;
+        
+        // Use same method as other sprites
         this.graphics.addToLayer(previewContainer, 'ui');
         this.cursorPreviewSprite = previewContainer;
     }
     
     drawPixi() {
-        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
+        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) {
+            return;
+        }
         
-        // Update captured areas
+        // Get layers - they should exist if graphics is initialized
+        const bgLayer = this.graphics.getLayer('background');
+        const fgLayer = this.graphics.getLayer('foreground');
+        const uiLayer = this.graphics.getLayer('ui');
+        
+        if (!bgLayer || !fgLayer || !uiLayer) {
+            return;
+        }
+        
+        // Draw background if not already drawn
+        if (!bgLayer.children.some(child => child.userData && child.userData.isBackground)) {
+            const bg = new PIXI.Graphics();
+            bg.beginFill(0x000011, 1);
+            bg.drawRect(0, 0, this.width, this.height);
+            bg.endFill();
+            bg.userData = { isBackground: true };
+            bgLayer.addChildAt(bg, 0); // Add at the bottom
+        }
+        
+        // TEST: Draw a simple bright red test line to verify rendering works
+        if (!fgLayer.children.some(child => child.userData && child.userData.isTestLine)) {
+            const testLine = new PIXI.Graphics();
+            // Use beginFill/endFill to draw a thick rectangle line instead
+            testLine.beginFill(0xff0000, 1.0); // Bright red, fully opaque
+            testLine.drawRect(50, 50, 150, 10); // Thick horizontal line
+            testLine.endFill();
+            testLine.userData = { isTestLine: true };
+            testLine.visible = true;
+            this.graphics.addToLayer(testLine, 'foreground'); // Use same method as balls
+            console.log('TEST: Added bright red test line to foreground layer');
+        }
+        
+        // Update captured areas (they draw on background layer, above background)
         this.updateCapturedAreaSprites();
+        
+        // Update completed walls (this method handles sprite removal/recreation)
+        this.updateWallSprites();
         
         // Update current wall
         this.updateCurrentWallSprite();

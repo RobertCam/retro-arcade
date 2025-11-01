@@ -131,6 +131,10 @@ class MicroRacingGame {
         this.screenEffects = this.nesEffects;
         this.initSprites();
         this.startGameLoop();
+        // Draw initial frame to show menu
+        if (!this.isPreview) {
+            this.drawPixi();
+        }
     }
     
     initSprites() {
@@ -147,8 +151,10 @@ class MicroRacingGame {
         const ticker = this.graphics.getTicker();
         if (ticker) {
             // Store the ticker callback so we can remove it later
+            // PixiJS ticker deltaTime is in frames, convert to milliseconds for update()
             this.tickerCallback = (deltaTime) => {
-                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+                const deltaMs = deltaTime * (1000 / 60); // Convert frames to milliseconds
+                this.gameLoop(deltaMs);
             };
             ticker.add(this.tickerCallback);
         } else {
@@ -366,10 +372,10 @@ class MicroRacingGame {
         // Normalize deltaTime to 60fps, and cap it to prevent huge jumps
         const dt = Math.min(deltaTime / 16.67, 2); // Cap at 2x normal speed
         
-        // Handle countdown
+        // Handle countdown - use milliseconds directly
         if (this.gameState === 'countdown') {
-            this.countdownTimer += dt;
-            if (this.countdownTimer >= 60) { // 60 frames = 1 second
+            this.countdownTimer += deltaTime; // Accumulate milliseconds
+            if (this.countdownTimer >= 1000) { // 1000ms = 1 second
                 this.countdownTimer = 0;
                 this.countdown--;
                 if (this.countdown <= 0) {
@@ -1838,8 +1844,20 @@ class MicroRacingGame {
     }
     
     gameLoop(currentTime = 0) {
-        const deltaTime = currentTime - this.lastTime;
-        this.lastTime = currentTime;
+        let deltaTime;
+        if (this.isPreview) {
+            // For preview, currentTime is a timestamp from requestAnimationFrame
+            if (this.lastTime === 0) {
+                this.lastTime = currentTime;
+                deltaTime = 16.67; // First frame, assume 60fps
+            } else {
+                deltaTime = currentTime - this.lastTime;
+                this.lastTime = currentTime;
+            }
+        } else {
+            // For PixiJS, currentTime is already deltaTime in milliseconds from our callback
+            deltaTime = currentTime || 16.67; // Use provided delta or default
+        }
         
         this.update(deltaTime);
         
