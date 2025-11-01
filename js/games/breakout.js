@@ -39,6 +39,12 @@ class BreakoutGame {
         this.balls = []; // For multi-ball power-up
         this.particles = new ParticleSystem();
         this.screenEffects = new ScreenEffects(canvas);
+        this.tweenManager = new TweenManager();
+        this.crtFilter = new CRTFilter(canvas);
+        
+        // Motion trails for balls
+        this.ballTrail = new MotionTrail(15, 0.92);
+        this.ballTrails = []; // For multi-balls
         
         // Power-up types
         this.powerUpTypes = {
@@ -71,7 +77,11 @@ class BreakoutGame {
     }
     
     setupInput() {
-        document.addEventListener('keydown', (e) => {
+        this.keydownHandler = (e) => {
+            // Only handle input if this is the active game
+            const activeCanvas = document.getElementById('game-canvas');
+            if (activeCanvas && activeCanvas !== this.canvas) return;
+            
             this.keys[e.code] = true;
             
             if (e.code === 'Space') {
@@ -87,11 +97,18 @@ class BreakoutGame {
             if (e.code === 'KeyP' && this.gameState === 'playing') {
                 this.togglePause();
             }
-        });
+        };
         
-        document.addEventListener('keyup', (e) => {
+        this.keyupHandler = (e) => {
+            // Only handle input if this is the active game
+            const activeCanvas = document.getElementById('game-canvas');
+            if (activeCanvas && activeCanvas !== this.canvas) return;
+            
             this.keys[e.code] = false;
-        });
+        };
+        
+        document.addEventListener('keydown', this.keydownHandler);
+        document.addEventListener('keyup', this.keyupHandler);
     }
     
     generateBackgroundPattern() {
@@ -258,12 +275,25 @@ class BreakoutGame {
     startNextTurn() {
         this.waitingForNextTurn = false;
         
-        // Reset paddle power-up effect
+        // Reset paddle power-up effect with tweening
         if (this.paddlePowerUpActive) {
             this.paddlePowerUpActive = false;
-            this.paddle.width = this.paddle.baseWidth;
-            this.paddle.x = this.width / 2 - this.paddle.width / 2;
+            const oldWidth = this.paddle.width;
+            const centerX = this.paddle.x + oldWidth / 2;
+            
+            const tween = new Tween(this.paddle, 300, Easing.easeInQuad);
+            tween.from({ width: oldWidth });
+            tween.to({ width: this.paddle.baseWidth });
+            tween.onUpdate = (progress, eased) => {
+                this.paddle.x = centerX - this.paddle.width / 2;
+            };
+            this.tweenManager.add(tween);
         }
+        
+        // Clear ball trails
+        this.ballTrail.clear();
+        this.ballTrails.forEach(trail => trail.clear());
+        this.ballTrails = [];
         
         this.resetBall();
         this.gameState = 'playing';
@@ -283,6 +313,9 @@ class BreakoutGame {
         // Update ball
         this.ball.x += this.ball.vx;
         this.ball.y += this.ball.vy;
+        
+        // Add point to motion trail
+        this.ballTrail.addPoint(this.ball.x, this.ball.y, this.ball.color, 4);
         
         // Ball collision with walls
         if (this.ball.x - this.ball.radius <= 0 || this.ball.x + this.ball.radius >= this.width) {
@@ -336,8 +369,12 @@ class BreakoutGame {
                 brick.destroyed = true;
                 this.score += 10;
                 
-                // Particle effect
+                // Enhanced particle effect with sparks
                 this.particles.explode(brick.x + brick.width / 2, brick.y + brick.height / 2, 8, brick.color);
+                this.particles.sparkBurst(brick.x + brick.width / 2, brick.y + brick.height / 2, 6, brick.color);
+                
+                // Ripple effect
+                this.screenEffects.ripple(brick.x + brick.width / 2, brick.y + brick.height / 2, 150);
                 
                 // Determine which side was hit for proper bounce
                 const ballCenterX = this.ball.x;
@@ -411,6 +448,13 @@ class BreakoutGame {
             ball.x += ball.vx;
             ball.y += ball.vy;
             
+            // Ensure trail exists for each ball
+            if (!ball.trail) {
+                ball.trail = new MotionTrail(12, 0.90);
+                this.ballTrails.push(ball.trail);
+            }
+            ball.trail.addPoint(ball.x, ball.y, ball.color, 3);
+            
             // Wall collisions
             if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= this.width) {
                 ball.vx = -ball.vx;
@@ -456,8 +500,12 @@ class BreakoutGame {
                     brick.destroyed = true;
                     this.score += 10;
                     
-                    // Particle effect
+                    // Enhanced particle effect with sparks
                     this.particles.explode(brick.x + brick.width / 2, brick.y + brick.height / 2, 8, brick.color);
+                    this.particles.sparkBurst(brick.x + brick.width / 2, brick.y + brick.height / 2, 6, brick.color);
+                    
+                    // Ripple effect
+                    this.screenEffects.ripple(brick.x + brick.width / 2, brick.y + brick.height / 2, 150);
                     
                     // Collision response
                     const ballCenterX = ball.x;
@@ -500,6 +548,12 @@ class BreakoutGame {
             
             // Remove ball if it falls off screen
             if (ball.y > this.height) {
+                if (ball.trail) {
+                    const trailIndex = this.ballTrails.indexOf(ball.trail);
+                    if (trailIndex > -1) {
+                        this.ballTrails.splice(trailIndex, 1);
+                    }
+                }
                 this.balls.splice(i, 1);
             }
         }
@@ -508,12 +562,24 @@ class BreakoutGame {
         if (this.ball.y > this.height) {
             console.log('Main ball lost! Lives before:', this.lives);
             
-            // Ball explosion effect
+            // Enhanced ball explosion effect
             this.particles.explode(this.ball.x, this.ball.y, 15, '#ff0000');
+            this.particles.sparkBurst(this.ball.x, this.ball.y, 20, '#ff6600');
+            this.particles.smokeCloud(this.ball.x, this.ball.y, 5, '#333333');
             this.screenEffects.shake(8, 15);
+            this.screenEffects.zoom(1.05);
             
             // Destroy all multi-balls
+            this.balls.forEach(ball => {
+                if (ball.trail) {
+                    const trailIndex = this.ballTrails.indexOf(ball.trail);
+                    if (trailIndex > -1) {
+                        this.ballTrails.splice(trailIndex, 1);
+                    }
+                }
+            });
             this.balls = [];
+            this.ballTrails = [];
             
             // Lose a life
             this.lives--;
@@ -537,6 +603,11 @@ class BreakoutGame {
         // Update effects
         this.particles.update();
         this.screenEffects.update();
+        this.tweenManager.update(performance.now());
+        
+        // Update motion trails
+        this.ballTrail.update();
+        this.ballTrails.forEach(trail => trail.update());
     }
     
     levelUp() {
@@ -594,7 +665,8 @@ class BreakoutGame {
         switch (type) {
             case 'MULTI_BALL':
                 console.log('Multi-ball activated!');
-                // Create two additional balls
+                // Create two additional balls with glow effect
+                this.particles.glowExplosion(this.ball.x, this.ball.y, 25, '#ff00ff');
                 for (let i = 0; i < 2; i++) {
                     const newBall = {
                         x: this.ball.x,
@@ -610,13 +682,19 @@ class BreakoutGame {
                 
             case 'LARGE_PADDLE':
                 console.log('Large paddle activated! Lives:', this.lives);
-                // Make paddle larger until end of turn
+                // Make paddle larger until end of turn with tweening
                 this.paddlePowerUpActive = true;
                 const oldWidth = this.paddle.width;
-                this.paddle.width = 150;
-                // Keep paddle centered at its current center position
                 const centerX = this.paddle.x + oldWidth / 2;
-                this.paddle.x = centerX - this.paddle.width / 2;
+                
+                // Animate paddle size change
+                const tween = new Tween(this.paddle, 300, Easing.easeOutBounce);
+                tween.from({ width: oldWidth });
+                tween.to({ width: 150 });
+                tween.onUpdate = (progress, eased) => {
+                    this.paddle.x = centerX - this.paddle.width / 2;
+                };
+                this.tweenManager.add(tween);
                 break;
                 
             case 'EXTRA_LIFE':
@@ -795,10 +873,12 @@ class BreakoutGame {
         // Draw background pattern
         this.drawBackground();
         
-        // Apply screen shake
-        const shake = this.screenEffects.getShakeOffset();
+        // Apply screen effects transform
+        const transform = this.screenEffects.getTransform();
         this.ctx.save();
-        this.ctx.translate(shake.x, shake.y);
+        this.ctx.translate(this.width / 2, this.height / 2);
+        this.ctx.scale(transform.scale, transform.scale);
+        this.ctx.translate(-this.width / 2 + transform.x, -this.height / 2 + transform.y);
         
         // Draw bricks
         for (let brick of this.bricks) {
@@ -824,6 +904,9 @@ class BreakoutGame {
         this.ctx.fillRect(this.paddle.x, this.paddle.y, this.paddle.width, this.paddle.height);
         this.ctx.shadowBlur = 0;
         
+        // Draw ball motion trail
+        this.ballTrail.draw(this.ctx);
+        
         // Draw main ball
         this.ctx.fillStyle = this.ball.color;
         this.ctx.beginPath();
@@ -838,8 +921,13 @@ class BreakoutGame {
         this.ctx.fill();
         this.ctx.shadowBlur = 0;
         
-        // Draw additional balls (multi-ball power-up)
-        for (let ball of this.balls) {
+        // Draw additional balls (multi-ball power-up) with trails
+        for (let i = 0; i < this.balls.length; i++) {
+            const ball = this.balls[i];
+            if (ball.trail) {
+                ball.trail.draw(this.ctx);
+            }
+            
             this.ctx.fillStyle = ball.color;
             this.ctx.beginPath();
             this.ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
@@ -875,6 +963,10 @@ class BreakoutGame {
         
         // Draw screen effects
         this.screenEffects.drawFlash();
+        this.screenEffects.drawRipple();
+        
+        // Draw CRT filter for retro effect
+        this.crtFilter.draw(this.ctx);
     }
     
     drawUI() {

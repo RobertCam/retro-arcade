@@ -152,19 +152,40 @@ class JezzballGame {
             ballCount = 50;
         }
         
-        // Lives equal number of balls
-        this.lives = ballCount;
+        // Lives equal number of balls plus 1 (only set on first level, not when leveling up)
+        if (this.level === 1) {
+            this.lives = ballCount + 1;
+        }
+        
+        // Calculate speed multiplier based on level (gradual increase)
+        // Level 1: 1.0x, Level 2: 1.08x, Level 10: 1.72x, etc.
+        const speedMultiplier = 1.0 + ((this.level - 1) * 0.08);
         
         // Create balls with random positions and velocities
         for (let i = 0; i < ballCount; i++) {
             const ball = {
                 x: 50 + Math.random() * (this.width - 100),
                 y: 50 + Math.random() * (this.height - 100),
-                vx: (Math.random() - 0.5) * 6,
-                vy: (Math.random() - 0.5) * 6,
+                vx: (Math.random() - 0.5) * 6 * speedMultiplier,
+                vy: (Math.random() - 0.5) * 6 * speedMultiplier,
                 radius: 8,
                 color: '#ff0000' // Red balls like original
             };
+            
+            // Ensure minimum speed - if ball is too slow, scale it up (also scales with level)
+            const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+            const minSpeed = 2.5 * speedMultiplier; // Minimum speed threshold scales with level
+            if (speed < minSpeed && speed > 0) {
+                // Scale up velocity to meet minimum speed
+                const scale = minSpeed / speed;
+                ball.vx *= scale;
+                ball.vy *= scale;
+            } else if (speed === 0) {
+                // If somehow speed is 0, give it a random direction
+                const angle = Math.random() * Math.PI * 2;
+                ball.vx = Math.cos(angle) * minSpeed;
+                ball.vy = Math.sin(angle) * minSpeed;
+            }
             
             // Ensure balls don't start too close to edges
             if (ball.x < 30) ball.x = 30;
@@ -181,7 +202,11 @@ class JezzballGame {
     
     setupInput() {
         // Keyboard input
-        document.addEventListener('keydown', (e) => {
+        this.keydownHandler = (e) => {
+            // Only handle input if this is the active game
+            const activeCanvas = document.getElementById('game-canvas');
+            if (activeCanvas !== this.canvas) return;
+            
             this.keys[e.code] = true;
             
             if (e.code === 'Space') {
@@ -200,11 +225,18 @@ class JezzballGame {
             if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
                 this.wallDirection = this.wallDirection === 'horizontal' ? 'vertical' : 'horizontal';
             }
-        });
+        };
         
-        document.addEventListener('keyup', (e) => {
+        this.keyupHandler = (e) => {
+            // Only handle input if this is the active game
+            const activeCanvas = document.getElementById('game-canvas');
+            if (activeCanvas !== this.canvas) return;
+            
             this.keys[e.code] = false;
-        });
+        };
+        
+        document.addEventListener('keydown', this.keydownHandler);
+        document.addEventListener('keyup', this.keyupHandler);
         
         // Mouse input for Jezzball controls
         this.canvas.addEventListener('mousemove', (e) => {

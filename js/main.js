@@ -1,16 +1,20 @@
 // Main application logic
+let currentGameInstance = null;
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize all game previews
     initBreakout();
     initJezzball();
-    initRacing();
+    initMicroRacing();
     initWorkingMan();
+    initTetris();
     
     // Update high score displays
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
-    highScoreManager.updateDisplay('racing');
-    highScoreManager.updateDisplay('workingMan');
+    highScoreManager.updateDisplay('micro-racing');
+    highScoreManager.updateDisplay('working-man');
+    highScoreManager.updateDisplay('tetris');
     
     // Add click handlers for arcade cabinets
     const arcadeCabinets = document.querySelectorAll('.arcade-cabinet');
@@ -81,6 +85,18 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function openGame(gameName) {
+    // Clean up any existing game first
+    if (currentGameInstance && typeof currentGameInstance.cleanup === 'function') {
+        currentGameInstance.cleanup();
+    }
+    currentGameInstance = null;
+    
+    // Close existing game container if present
+    const existingContainer = document.querySelector('.game-container');
+    if (existingContainer) {
+        existingContainer.remove();
+    }
+    
     // Hide lobby
     document.querySelector('.arcade-lobby').style.display = 'none';
     
@@ -110,6 +126,12 @@ function openGame(gameName) {
 }
 
 function closeGame() {
+    // Clean up current game instance
+    if (currentGameInstance && typeof currentGameInstance.cleanup === 'function') {
+        currentGameInstance.cleanup();
+    }
+    currentGameInstance = null;
+    
     // Remove game container
     const gameContainer = document.querySelector('.game-container');
     if (gameContainer) {
@@ -122,8 +144,9 @@ function closeGame() {
     // Update high scores
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
-    highScoreManager.updateDisplay('racing');
-    highScoreManager.updateDisplay('workingMan');
+    highScoreManager.updateDisplay('micro-racing');
+    highScoreManager.updateDisplay('working-man');
+    highScoreManager.updateDisplay('tetris');
 }
 
 function getGameTitle(gameName) {
@@ -131,7 +154,10 @@ function getGameTitle(gameName) {
         'breakout': 'Breakout',
         'jezzball': 'Jezzball',
         'racing': 'Micro Racing',
-        'workingMan': 'Working Man vs Oligarch'
+        'micro-racing': 'Micro Racing',
+        'working-man': 'Working Man vs Oligarch',
+        'workingMan': 'Working Man vs Oligarch',
+        'tetris': 'Tetris'
     };
     return titles[gameName] || 'Game';
 }
@@ -141,7 +167,8 @@ function getGameControls(gameName) {
         'breakout': 'Arrow Keys: Move paddle | Space: Start/Pause | P: Pause',
         'jezzball': 'Mouse: Draw lines | Space: Start | R: Reset',
         'racing': 'Arrow Keys: Steer | Space: Accelerate | R: Reset',
-        'workingMan': 'Arrow Keys: Move | Space: Jump | R: Reset'
+        'workingMan': 'Arrow Keys: Move | Space: Jump | R: Reset',
+        'tetris': 'Arrow Keys: Move/Rotate | Down: Soft Drop | Space: Hard Drop | X: Rotate | P: Pause | R: Reset'
     };
     return controls[gameName] || 'Check game instructions';
 }
@@ -153,20 +180,25 @@ function initializeGame(gameName) {
     // Clear any existing game
     canvas.innerHTML = '';
     
+    // Create game instance and store it
     switch (gameName) {
         case 'breakout':
-            new BreakoutGame(canvas);
+            currentGameInstance = new BreakoutGame(canvas);
             break;
         case 'jezzball':
-            new JezzballGame(canvas);
+            currentGameInstance = new JezzballGame(canvas);
             break;
-        case 'racing':
-            // new RacingGame(canvas);
-            showComingSoon('Micro Racing');
+        case 'micro-racing':
+            console.log('Initializing Micro Racing game');
+            currentGameInstance = new MicroRacingGame(canvas);
             break;
         case 'working-man':
             console.log('Initializing Working Man game');
-            new WorkingManGame(canvas);
+            currentGameInstance = new WorkingManGame(canvas);
+            break;
+        case 'tetris':
+            console.log('Initializing Tetris game');
+            currentGameInstance = new TetrisGame(canvas);
             break;
     }
 }
@@ -204,8 +236,20 @@ function showHighScores(gameName) {
     // Set title
     title.textContent = `${getGameTitle(gameName).toUpperCase()} HIGH SCORES`;
     
+    // Map game name for score lookup (handle both formats)
+    let scoreKey = gameName === 'working-man' ? 'working-man' : 
+                   (gameName === 'micro-racing' ? 'micro-racing' : gameName);
+    
+    // Handle legacy 'racing' key for micro-racing (backward compatibility)
+    if (gameName === 'micro-racing' && (!highScoreManager.scores[scoreKey] || highScoreManager.scores[scoreKey].length === 0)) {
+        // Check if scores exist under old 'racing' key
+        if (highScoreManager.scores['racing'] && highScoreManager.scores['racing'].length > 0) {
+            scoreKey = 'racing';
+        }
+    }
+    
     // Get scores
-    const scores = highScoreManager.scores[gameName] || [];
+    const scores = highScoreManager.scores[scoreKey] || [];
     
     // Clear list
     list.innerHTML = '';
@@ -227,11 +271,10 @@ function showHighScores(gameName) {
             
             const value = document.createElement('div');
             value.className = 'score-value';
-            if (gameName === 'racing') {
-                value.textContent = Utils.formatTime(score.score);
-            } else {
-                value.textContent = Utils.formatScore(score.score);
-            }
+            // All games use score format (points), not time
+            // Ensure score is a number before formatting
+            const numericScore = typeof score.score === 'number' ? score.score : parseInt(score.score) || 0;
+            value.textContent = Utils.formatScore(numericScore);
             
             scoreItem.appendChild(rank);
             scoreItem.appendChild(player);

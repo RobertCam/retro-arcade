@@ -46,7 +46,7 @@
                 </div>
             </div>
             
-            <div class="arcade-cabinet" data-game="racing">
+            <div class="arcade-cabinet" data-game="micro-racing">
                 <div class="cabinet-screen">
                     <canvas id="racing-preview" width="240" height="180"></canvas>
                     <div class="screen-overlay">
@@ -56,8 +56,8 @@
                 </div>
                 <div class="cabinet-controls">
                     <div class="high-score-display">
-                        <div class="top-score">BEST: <span id="racing-score">--:--</span></div>
-                        <button class="scores-btn" data-game="racing">SCORES</button>
+                        <div class="top-score">BEST: <span id="micro-racing-score">0</span></div>
+                        <button class="scores-btn" data-game="micro-racing">SCORES</button>
                     </div>
                 </div>
             </div>
@@ -74,6 +74,22 @@
                     <div class="high-score-display">
                         <div class="top-score">TOP: <span id="working-man-score">0</span></div>
                         <button class="scores-btn" data-game="working-man">SCORES</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arcade-cabinet" data-game="tetris">
+                <div class="cabinet-screen">
+                    <canvas id="tetris-preview" width="240" height="180"></canvas>
+                    <div class="screen-overlay">
+                        <div class="game-title">TETRIS</div>
+                        <div class="game-subtitle">Classic puzzle!</div>
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="tetris-score">0</span></div>
+                        <button class="scores-btn" data-game="tetris">SCORES</button>
                     </div>
                 </div>
             </div>
@@ -123,8 +139,9 @@
     <script src="js/animation.js"></script>
     <script src="js/games/breakout.js"></script>
     <script src="js/games/jezzball.js"></script>
-    <script src="js/games/racing.js"></script>
     <script src="js/games/working-man.js"></script>
+    <script src="js/games/micro-racing.js"></script>
+    <script src="js/games/tetris.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>

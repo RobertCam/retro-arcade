@@ -71,7 +71,8 @@ class HighScoreManager {
             breakout: [],
             jezzball: [],
             racing: [],
-            workingMan: []
+            workingMan: [],
+            tetris: []
         };
     }
     
@@ -125,12 +126,8 @@ class HighScoreManager {
         const modal = document.getElementById('name-entry-modal');
         const scoreDisplay = document.getElementById('new-score-display');
         
-        // Format score display
-        if (this.pendingScore.game === 'racing') {
-            scoreDisplay.textContent = Utils.formatTime(score);
-        } else {
-            scoreDisplay.textContent = Utils.formatScore(score);
-        }
+        // Format score display - all games use score format (points)
+        scoreDisplay.textContent = Utils.formatScore(score);
         
         // Clear initials inputs
         document.getElementById('initial1').value = '';
@@ -179,14 +176,13 @@ class HighScoreManager {
     }
     
     updateDisplay(game) {
-        const element = document.getElementById(`${game}-score`);
+        // Handle legacy 'racing' game name for HTML element
+        const elementId = game === 'micro-racing' ? 'micro-racing-score' : `${game}-score`;
+        const element = document.getElementById(elementId);
         if (element) {
             const topScore = this.getTopScore(game);
-            if (game === 'racing') {
-                element.textContent = topScore > 0 ? Utils.formatTime(topScore) : '--:--';
-            } else {
-                element.textContent = Utils.formatScore(topScore);
-            }
+            // All games use score format (points), not time
+            element.textContent = topScore > 0 ? Utils.formatScore(topScore) : '0';
         }
     }
 }
