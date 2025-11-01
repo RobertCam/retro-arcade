@@ -72,7 +72,8 @@ class HighScoreManager {
             jezzball: [],
             racing: [],
             workingMan: [],
-            tetris: []
+            tetris: [],
+            'mouse-pacman': []
         };
     }
     

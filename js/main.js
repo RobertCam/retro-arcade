@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initMicroRacing();
     initWorkingMan();
     initTetris();
+    initMousePacman();
     
     // Update high score displays
     highScoreManager.updateDisplay('breakout');
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
     highScoreManager.updateDisplay('micro-racing');
     highScoreManager.updateDisplay('working-man');
     highScoreManager.updateDisplay('tetris');
+    highScoreManager.updateDisplay('mouse-pacman');
     
     // Add click handlers for arcade cabinets
     const arcadeCabinets = document.querySelectorAll('.arcade-cabinet');
@@ -100,7 +102,7 @@ function openGame(gameName) {
     // Hide lobby
     document.querySelector('.arcade-lobby').style.display = 'none';
     
-    // Create game container
+    // Create game container with side panel for stats
     const gameContainer = document.createElement('div');
     gameContainer.className = 'game-container';
     gameContainer.innerHTML = `
@@ -108,7 +110,14 @@ function openGame(gameName) {
             <button id="back-btn" class="back-btn">← Back to Lobby</button>
             <h2 id="game-title">${getGameTitle(gameName)}</h2>
         </div>
-        <canvas id="game-canvas" class="game-canvas" width="800" height="600"></canvas>
+        <div class="game-content-wrapper">
+            <canvas id="game-canvas" class="game-canvas" width="800" height="600"></canvas>
+            <div id="game-stats-panel" class="game-stats-panel">
+                <div class="stats-content">
+                    <!-- Stats will be populated by each game -->
+                </div>
+            </div>
+        </div>
         <div class="game-controls">
             <div class="controls-info">
                 <p id="controls-text">${getGameControls(gameName)}</p>
@@ -147,6 +156,7 @@ function closeGame() {
     highScoreManager.updateDisplay('micro-racing');
     highScoreManager.updateDisplay('working-man');
     highScoreManager.updateDisplay('tetris');
+    highScoreManager.updateDisplay('mouse-pacman');
 }
 
 function getGameTitle(gameName) {
@@ -157,7 +167,8 @@ function getGameTitle(gameName) {
         'micro-racing': 'Hyper Runners',
         'working-man': 'Rise of the Rivets',
         'workingMan': 'Rise of the Rivets',
-        'tetris': 'Tetra Circuit'
+        'tetris': 'Tetra Circuit',
+        'mouse-pacman': 'Mousetrap'
     };
     return titles[gameName] || 'Game';
 }
@@ -168,7 +179,8 @@ function getGameControls(gameName) {
         'jezzball': 'Mouse: Draw lines | Space: Start | R: Reset',
         'racing': 'Arrow Keys: Steer | Space: Accelerate | R: Reset',
         'workingMan': 'Arrow Keys: Move | Space: Jump | R: Reset',
-        'tetris': 'Arrow Keys: Move/Rotate | Down: Soft Drop | Space: Hard Drop | X: Rotate | P: Pause | R: Reset'
+        'tetris': 'Arrow Keys: Move/Rotate | Down: Soft Drop | Space: Hard Drop | X: Rotate | P: Pause | R: Reset',
+        'mouse-pacman': 'Arrow Keys: Move | Space: Start/Pause | P: Pause | R: Reset'
     };
     return controls[gameName] || 'Check game instructions';
 }
@@ -199,6 +211,10 @@ function initializeGame(gameName) {
         case 'tetris':
             console.log('Initializing Tetris game');
             currentGameInstance = new TetrisGame(canvas);
+            break;
+        case 'mouse-pacman':
+            console.log('Initializing Mouse Pac-Man game');
+            currentGameInstance = new MousePacmanGame(canvas);
             break;
     }
 }

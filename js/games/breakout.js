@@ -99,6 +99,7 @@ class BreakoutGame {
         
         // Game state for turn management
         this.waitingForNextTurn = false;
+        this.hasProcessedBallLoss = false; // Track if ball loss has been processed this turn
         
         // Paddle power-up state
         this.paddlePowerUpActive = false;
@@ -840,6 +841,8 @@ class BreakoutGame {
         this.lives = 3;
         this.level = 1;
         this.paddlePowerUpActive = false;
+        this.waitingForNextTurn = false;
+        this.hasProcessedBallLoss = false;
         this.paddle.width = this.paddle.baseWidth;
         this.paddle.x = this.width / 2 - this.paddle.width / 2;
         this.balls = []; // Clear any remaining balls from previous game
@@ -874,6 +877,7 @@ class BreakoutGame {
     
     startNextTurn() {
         this.waitingForNextTurn = false;
+        this.hasProcessedBallLoss = false; // Reset flag for new turn
         
         // Reset paddle power-up effect with tweening
         if (this.paddlePowerUpActive) {
@@ -921,6 +925,12 @@ class BreakoutGame {
             this.uiAnimations = this.uiAnimations.filter(anim => {
                 return anim.update(deltaTime);
             });
+        }
+        
+        // Check for game over condition (lives exhausted)
+        if (this.gameState === 'playing' && this.lives <= 0) {
+            console.log('Game over detected in update loop! Lives:', this.lives);
+            this.gameOver();
         }
         
         if (this.gameState !== 'playing') {
@@ -1264,9 +1274,10 @@ class BreakoutGame {
             }
         }
         
-        // Check if main ball fell off screen
-        if (this.ball.y > this.height) {
+        // Check if main ball fell off screen (don't process if game is over or already processed)
+        if (this.ball.y > this.height && this.gameState === 'playing' && !this.hasProcessedBallLoss) {
             console.log('Main ball lost! Lives before:', this.lives);
+            this.hasProcessedBallLoss = true; // Prevent multiple detections
             
             // Enhanced ball explosion effect
             if (this.isPreview && this.particles) {
@@ -1337,8 +1348,8 @@ class BreakoutGame {
             }
         }
         
-        // Check if all bricks destroyed
-        if (this.bricks.every(brick => brick.destroyed)) {
+        // Check if all bricks destroyed (don't level up if game is over)
+        if (this.gameState === 'playing' && this.bricks.every(brick => brick.destroyed)) {
             this.levelUp();
         }
         
@@ -1906,6 +1917,13 @@ class BreakoutGame {
     gameOver() {
         console.log('gameOver() called! Score:', this.score, 'Lives:', this.lives);
         this.gameState = 'gameOver';
+        this.waitingForNextTurn = false; // Clear waiting state to prevent confusion
+        this.hasProcessedBallLoss = false; // Reset flag
+        
+        // Stop all balls
+        this.ball.vx = 0;
+        this.ball.vy = 0;
+        this.balls = [];
         
         // Check if this is a high score (only at complete game end)
         if (highScoreManager.checkHighScore('breakout', this.score)) {
@@ -2321,47 +2339,19 @@ class BreakoutGame {
     drawUIPixi() {
         if (this.isPreview || !this.graphics) return;
         
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
+        
         const uiLayer = this.graphics.getLayer('ui');
-        uiLayer.removeChildren();
+        if (!uiLayer) return;
         
-        // Create text sprites for UI - positioned OUTSIDE play area (bottom of screen)
-        const style = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 20,
-            fill: 0xffffff,
-            fontWeight: 'bold',
-            stroke: 0x000000,
-            strokeThickness: 3
+        // Remove existing game state messages only
+        const children = uiLayer.children.slice();
+        children.forEach(child => {
+            if (child.userData && child.userData.isGameStateMessage) {
+                uiLayer.removeChild(child);
+            }
         });
-        
-        // Position stats at TOP of screen, completely OUTSIDE play area
-        const screenWidth = this.graphics.app.screen.width;
-        const screenHeight = this.graphics.app.screen.height;
-        const panelHeight = 50;
-        const panelY = 10; // Top of screen
-        
-        // Create a background panel for stats at top
-        const panelBg = new PIXI.Graphics();
-        panelBg.beginFill(0x000000, 0.9);
-        panelBg.drawRoundedRect(10, panelY, screenWidth - 20, panelHeight, 5);
-        panelBg.endFill();
-        uiLayer.addChild(panelBg);
-        
-        // Position stats horizontally across the top
-        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, style);
-        scoreText.x = 20;
-        scoreText.y = panelY + 5;
-        uiLayer.addChild(scoreText);
-        
-        const livesText = new PIXI.Text(`Lives: ${this.lives}`, style);
-        livesText.x = 20;
-        livesText.y = panelY + 28;
-        uiLayer.addChild(livesText);
-        
-        const levelText = new PIXI.Text(`Level: ${this.level}`, style);
-        levelText.x = screenWidth - 150;
-        levelText.y = panelY + 16;
-        uiLayer.addChild(levelText);
         
         // Draw game state messages (centered in play area)
         if (this.gameState === 'menu') {
@@ -2378,10 +2368,11 @@ class BreakoutGame {
                 dropShadowAngle: Math.PI / 4,
                 dropShadowDistance: 5
             });
-            const title = new PIXI.Text('BREAKOUT', titleStyle);
+            const title = new PIXI.Text('NEON SHARDS', titleStyle);
             title.x = this.width / 2;
             title.y = this.height / 2 - 50;
             title.anchor.set(0.5);
+            title.userData = { isGameStateMessage: true };
             uiLayer.addChild(title);
             
             const startStyle = new PIXI.TextStyle({
@@ -2393,6 +2384,7 @@ class BreakoutGame {
             startText.x = this.width / 2;
             startText.y = this.height / 2 + 20;
             startText.anchor.set(0.5);
+            startText.userData = { isGameStateMessage: true };
             uiLayer.addChild(startText);
         } else if (this.gameState === 'paused') {
             const pauseStyle = new PIXI.TextStyle({
@@ -2407,6 +2399,7 @@ class BreakoutGame {
             pauseText.x = this.width / 2;
             pauseText.y = this.height / 2;
             pauseText.anchor.set(0.5);
+            pauseText.userData = { isGameStateMessage: true };
             uiLayer.addChild(pauseText);
         } else if (this.gameState === 'waiting' || this.waitingForNextTurn) {
             // Show message to press space for next life
@@ -2422,6 +2415,7 @@ class BreakoutGame {
             waitingText.x = this.width / 2;
             waitingText.y = this.height / 2 - 40;
             waitingText.anchor.set(0.5);
+            waitingText.userData = { isGameStateMessage: true };
             uiLayer.addChild(waitingText);
             
             const pressSpaceStyle = new PIXI.TextStyle({
@@ -2434,8 +2428,88 @@ class BreakoutGame {
             pressSpaceText.x = this.width / 2;
             pressSpaceText.y = this.height / 2 + 10;
             pressSpaceText.anchor.set(0.5);
+            pressSpaceText.userData = { isGameStateMessage: true };
             uiLayer.addChild(pressSpaceText);
+        } else if (this.gameState === 'gameOver') {
+            // Semi-transparent overlay
+            const overlay = new PIXI.Graphics();
+            overlay.beginFill(0x000000, 0.8);
+            overlay.drawRect(0, 0, this.width, this.height);
+            overlay.endFill();
+            overlay.userData = { isGameStateMessage: true };
+            uiLayer.addChild(overlay);
+            
+            const gameOverStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 48,
+                fill: 0xff0000,
+                fontWeight: 'bold',
+                stroke: 0x000000,
+                strokeThickness: 6,
+                dropShadow: true,
+                dropShadowColor: 0x000000,
+                dropShadowBlur: 10,
+                dropShadowAngle: Math.PI / 4,
+                dropShadowDistance: 5
+            });
+            const gameOverText = new PIXI.Text('GAME OVER', gameOverStyle);
+            gameOverText.x = this.width / 2;
+            gameOverText.y = this.height / 2 - 80;
+            gameOverText.anchor.set(0.5);
+            gameOverText.userData = { isGameStateMessage: true };
+            uiLayer.addChild(gameOverText);
+            
+            const scoreStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 24,
+                fill: 0xffffff,
+                fontWeight: 'bold',
+                stroke: 0x000000,
+                strokeThickness: 3
+            });
+            const scoreText = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, scoreStyle);
+            scoreText.x = this.width / 2;
+            scoreText.y = this.height / 2 - 20;
+            scoreText.anchor.set(0.5);
+            scoreText.userData = { isGameStateMessage: true };
+            uiLayer.addChild(scoreText);
+            
+            const restartStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 20,
+                fill: 0xffffff,
+                fontWeight: 'bold'
+            });
+            const restartText = new PIXI.Text('Press SPACE to restart', restartStyle);
+            restartText.x = this.width / 2;
+            restartText.y = this.height / 2 + 40;
+            restartText.anchor.set(0.5);
+            restartText.userData = { isGameStateMessage: true };
+            uiLayer.addChild(restartText);
         }
+    }
+    
+    updateStatsPanel() {
+        const statsPanel = document.getElementById('game-stats-panel');
+        if (!statsPanel) return;
+        
+        const statsContent = statsPanel.querySelector('.stats-content');
+        if (!statsContent) return;
+        
+        statsContent.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">${Utils.formatScore(this.score)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Lives</div>
+                <div class="stat-value">${this.lives}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Level</div>
+                <div class="stat-value">${this.level}</div>
+            </div>
+        `;
     }
     
     drawUI() {
@@ -2450,7 +2524,7 @@ class BreakoutGame {
             this.ctx.fillStyle = '#00ffff';
             this.ctx.font = '30px Courier New';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('BREAKOUT', this.width / 2, this.height / 2 - 50);
+            this.ctx.fillText('NEON SHARDS', this.width / 2, this.height / 2 - 50);
             this.ctx.font = '16px Courier New';
             this.ctx.fillText('Press SPACE to start', this.width / 2, this.height / 2);
             this.ctx.fillText('Use arrow keys to move', this.width / 2, this.height / 2 + 30);

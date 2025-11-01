@@ -837,7 +837,7 @@ class TetrisGame {
         this.ctx.fillStyle = '#00ffff';
         this.ctx.font = 'bold 64px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('TETRIS', this.width / 2, this.height / 2 - 100);
+        this.ctx.fillText('TETRA CIRCUIT', this.width / 2, this.height / 2 - 100);
         
         // Instructions
         this.ctx.fillStyle = '#ffffff';
@@ -1163,76 +1163,21 @@ class TetrisGame {
     drawUIPixi() {
         if (this.isPreview || !this.graphics) return;
         
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
+        
         const uiLayer = this.graphics.getLayer('ui');
         if (!uiLayer) return;
         
-        // Remove existing UI text sprites (keep next piece)
+        // Remove existing UI text sprites (keep next piece and game state messages)
         const children = uiLayer.children.slice();
         children.forEach(child => {
-            if (child !== this.nextPieceSprite) {
+            if (child !== this.nextPieceSprite && (!child.userData || !child.userData.isGameStateMessage)) {
                 uiLayer.removeChild(child);
             }
         });
         
-        const infoX = 50;
-        let infoY = 50;
-        const lineHeight = 25;
-        
-        const labelStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 16,
-            fill: 0x00ffff,
-            fontWeight: 'bold'
-        });
-        
-        const valueStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 16,
-            fill: 0xffffff
-        });
-        
-        // Score
-        const scoreLabel = new PIXI.Text('SCORE', labelStyle);
-        scoreLabel.x = infoX;
-        scoreLabel.y = infoY;
-        uiLayer.addChild(scoreLabel);
-        
-        const scoreValue = new PIXI.Text(Utils.formatScore(this.score), valueStyle);
-        scoreValue.x = infoX;
-        scoreValue.y = infoY + lineHeight;
-        uiLayer.addChild(scoreValue);
-        
-        infoY += lineHeight * 3;
-        
-        // Level
-        const levelLabel = new PIXI.Text('LEVEL', labelStyle);
-        levelLabel.x = infoX;
-        levelLabel.y = infoY;
-        uiLayer.addChild(levelLabel);
-        
-        const levelValue = new PIXI.Text(this.level.toString(), valueStyle);
-        levelValue.x = infoX;
-        levelValue.y = infoY + lineHeight;
-        uiLayer.addChild(levelValue);
-        
-        infoY += lineHeight * 3;
-        
-        // Lines
-        const linesLabel = new PIXI.Text('LINES', labelStyle);
-        linesLabel.x = infoX;
-        linesLabel.y = infoY;
-        uiLayer.addChild(linesLabel);
-        
-        const linesValue = new PIXI.Text(this.lines.toString(), valueStyle);
-        linesValue.x = infoX;
-        linesValue.y = infoY + lineHeight;
-        uiLayer.addChild(linesValue);
-        
-        // NEXT label
-        const nextLabel = new PIXI.Text('NEXT', labelStyle);
-        nextLabel.x = 50;
-        nextLabel.y = 110;
-        uiLayer.addChild(nextLabel);
+        // Note: Next piece sprite is managed separately, don't remove it
         
         // Game state overlays
         if (this.gameState === 'menu') {
@@ -1259,10 +1204,13 @@ class TetrisGame {
             align: 'center'
         });
         
-        const title = new PIXI.Text('TETRIS', titleStyle);
+        const title = new PIXI.Text('TETRA CIRCUIT', titleStyle);
         title.anchor.set(0.5);
         title.x = this.width / 2;
         title.y = this.height / 2 - 100;
+        title.userData = { isGameStateMessage: true };
+        overlay.userData = { isGameStateMessage: true };
+        uiLayer.addChild(overlay);
         uiLayer.addChild(title);
         
         const instructionStyle = new PIXI.TextStyle({
@@ -1284,6 +1232,7 @@ class TetrisGame {
             instruction.anchor.set(0.5);
             instruction.x = this.width / 2;
             instruction.y = this.height / 2 - 20 + (i * 30);
+            instruction.userData = { isGameStateMessage: true };
             uiLayer.addChild(instruction);
         });
     }
@@ -1303,10 +1252,14 @@ class TetrisGame {
             align: 'center'
         });
         
+        overlay.userData = { isGameStateMessage: true };
+        uiLayer.addChild(overlay);
+        
         const gameOver = new PIXI.Text('GAME OVER', gameOverStyle);
         gameOver.anchor.set(0.5);
         gameOver.x = this.width / 2;
         gameOver.y = this.height / 2 - 50;
+        gameOver.userData = { isGameStateMessage: true };
         uiLayer.addChild(gameOver);
         
         const infoStyle = new PIXI.TextStyle({
@@ -1320,12 +1273,14 @@ class TetrisGame {
         finalScore.anchor.set(0.5);
         finalScore.x = this.width / 2;
         finalScore.y = this.height / 2 + 20;
+        finalScore.userData = { isGameStateMessage: true };
         uiLayer.addChild(finalScore);
         
         const stats = new PIXI.Text(`Level: ${this.level} | Lines: ${this.lines}`, infoStyle);
         stats.anchor.set(0.5);
         stats.x = this.width / 2;
         stats.y = this.height / 2 + 50;
+        stats.userData = { isGameStateMessage: true };
         uiLayer.addChild(stats);
         
         const restartStyle = new PIXI.TextStyle({
@@ -1339,12 +1294,14 @@ class TetrisGame {
         restart.anchor.set(0.5);
         restart.x = this.width / 2;
         restart.y = this.height / 2 + 100;
+        restart.userData = { isGameStateMessage: true };
         uiLayer.addChild(restart);
         
         const reset = new PIXI.Text('Press R to Reset', restartStyle);
         reset.anchor.set(0.5);
         reset.x = this.width / 2;
         reset.y = this.height / 2 + 130;
+        reset.userData = { isGameStateMessage: true };
         uiLayer.addChild(reset);
     }
     
@@ -1353,6 +1310,7 @@ class TetrisGame {
         overlay.beginFill(0x000000, 0.7);
         overlay.drawRect(0, 0, this.width, this.height);
         overlay.endFill();
+        overlay.userData = { isGameStateMessage: true };
         uiLayer.addChild(overlay);
         
         const pauseStyle = new PIXI.TextStyle({
@@ -1367,6 +1325,7 @@ class TetrisGame {
         paused.anchor.set(0.5);
         paused.x = this.width / 2;
         paused.y = this.height / 2;
+        paused.userData = { isGameStateMessage: true };
         uiLayer.addChild(paused);
         
         const resumeStyle = new PIXI.TextStyle({
@@ -1380,7 +1339,31 @@ class TetrisGame {
         resume.anchor.set(0.5);
         resume.x = this.width / 2;
         resume.y = this.height / 2 + 40;
+        resume.userData = { isGameStateMessage: true };
         uiLayer.addChild(resume);
+    }
+    
+    updateStatsPanel() {
+        const statsPanel = document.getElementById('game-stats-panel');
+        if (!statsPanel) return;
+        
+        const statsContent = statsPanel.querySelector('.stats-content');
+        if (!statsContent) return;
+        
+        statsContent.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">${Utils.formatScore(this.score)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Level</div>
+                <div class="stat-value">${this.level}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Lines</div>
+                <div class="stat-value">${this.lines}</div>
+            </div>
+        `;
     }
     
     draw() {
@@ -1680,7 +1663,7 @@ class TetrisGame {
         this.ctx.fillStyle = '#00ffff';
         this.ctx.font = 'bold 20px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('TETRIS', previewX, previewY + 50);
+        this.ctx.fillText('TETRA CIRCUIT', previewX, previewY + 50);
     }
 }
 

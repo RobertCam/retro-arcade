@@ -1364,19 +1364,6 @@ class JezzballGame {
             bgLayer.addChildAt(bg, 0); // Add at the bottom
         }
         
-        // TEST: Draw a simple bright red test line to verify rendering works
-        if (!fgLayer.children.some(child => child.userData && child.userData.isTestLine)) {
-            const testLine = new PIXI.Graphics();
-            // Use beginFill/endFill to draw a thick rectangle line instead
-            testLine.beginFill(0xff0000, 1.0); // Bright red, fully opaque
-            testLine.drawRect(50, 50, 150, 10); // Thick horizontal line
-            testLine.endFill();
-            testLine.userData = { isTestLine: true };
-            testLine.visible = true;
-            this.graphics.addToLayer(testLine, 'foreground'); // Use same method as balls
-            console.log('TEST: Added bright red test line to foreground layer');
-        }
-        
         // Update captured areas (they draw on background layer, above background)
         this.updateCapturedAreaSprites();
         
@@ -1396,72 +1383,20 @@ class JezzballGame {
     drawUIPixi() {
         if (this.isPreview || !this.graphics) return;
         
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
+        
+        // Game state messages still drawn on canvas (center screen)
         const uiLayer = this.graphics.getLayer('ui');
         if (!uiLayer) return;
         
-        // Remove existing UI text sprites (keep cursor preview)
+        // Remove existing game state messages
         const children = uiLayer.children.slice();
         children.forEach(child => {
-            if (child !== this.cursorPreviewSprite) {
+            if (child !== this.cursorPreviewSprite && child.userData && child.userData.isGameStateMessage) {
                 uiLayer.removeChild(child);
             }
         });
-        
-        // Create UI panel background
-        const panel = new PIXI.Graphics();
-        panel.beginFill(0x000000, 0.7);
-        panel.drawRoundedRect(0, 0, 250, 150, 5);
-        panel.endFill();
-        panel.x = 10;
-        panel.y = 10;
-        uiLayer.addChild(panel);
-        
-        // Create text style
-        const textStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 16,
-            fill: 0xffffff,
-            fontWeight: 'bold',
-            stroke: 0x000000,
-            strokeThickness: 2
-        });
-        
-        // Score
-        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, textStyle);
-        scoreText.x = 20;
-        scoreText.y = 20;
-        uiLayer.addChild(scoreText);
-        
-        // Lives
-        const livesText = new PIXI.Text(`Lives: ${this.lives}`, textStyle);
-        livesText.x = 20;
-        livesText.y = 40;
-        uiLayer.addChild(livesText);
-        
-        // Level
-        const levelText = new PIXI.Text(`Level: ${this.level}`, textStyle);
-        levelText.x = 20;
-        levelText.y = 60;
-        uiLayer.addChild(levelText);
-        
-        // Time
-        const timeText = new PIXI.Text(`Time: ${Math.ceil(this.timeLeft)}`, textStyle);
-        timeText.x = 20;
-        timeText.y = 80;
-        uiLayer.addChild(timeText);
-        
-        // Capture percentage
-        const capturePercentage = (this.capturedArea / this.totalArea) * 100;
-        const captureText = new PIXI.Text(`Captured: ${Math.round(capturePercentage * 100) / 100}%`, textStyle);
-        captureText.x = 20;
-        captureText.y = 100;
-        uiLayer.addChild(captureText);
-        
-        // Wall direction
-        const directionText = new PIXI.Text(`Direction: ${this.wallDirection.toUpperCase()}`, textStyle);
-        directionText.x = 20;
-        directionText.y = 120;
-        uiLayer.addChild(directionText);
         
         // Game state messages
         if (this.gameState === 'menu') {
@@ -1475,10 +1410,11 @@ class JezzballGame {
                 align: 'center'
             });
             
-            const titleText = new PIXI.Text('JEZZBALL', menuStyle);
+            const titleText = new PIXI.Text('CONTAINMENT GRID', menuStyle);
             titleText.anchor.set(0.5);
             titleText.x = this.width / 2;
             titleText.y = this.height / 2 - 50;
+            titleText.userData = { isGameStateMessage: true };
             uiLayer.addChild(titleText);
             
             const smallStyle = new PIXI.TextStyle({
@@ -1500,6 +1436,7 @@ class JezzballGame {
                 instructionText.anchor.set(0.5);
                 instructionText.x = this.width / 2;
                 instructionText.y = this.height / 2 - 20 + (i * 20);
+                instructionText.userData = { isGameStateMessage: true };
                 uiLayer.addChild(instructionText);
             });
         } else if (this.gameState === 'paused') {
@@ -1517,6 +1454,7 @@ class JezzballGame {
             pauseText.anchor.set(0.5);
             pauseText.x = this.width / 2;
             pauseText.y = this.height / 2;
+            pauseText.userData = { isGameStateMessage: true };
             uiLayer.addChild(pauseText);
             
             const resumeText = new PIXI.Text('Press P to resume', new PIXI.TextStyle({
@@ -1528,6 +1466,7 @@ class JezzballGame {
             resumeText.anchor.set(0.5);
             resumeText.x = this.width / 2;
             resumeText.y = this.height / 2 + 30;
+            resumeText.userData = { isGameStateMessage: true };
             uiLayer.addChild(resumeText);
         } else if (this.gameState === 'gameOver') {
             const gameOverStyle = new PIXI.TextStyle({
@@ -1544,6 +1483,7 @@ class JezzballGame {
             gameOverText.anchor.set(0.5);
             gameOverText.x = this.width / 2;
             gameOverText.y = this.height / 2 - 30;
+            gameOverText.userData = { isGameStateMessage: true };
             uiLayer.addChild(gameOverText);
             
             const finalScoreText = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, new PIXI.TextStyle({
@@ -1555,6 +1495,7 @@ class JezzballGame {
             finalScoreText.anchor.set(0.5);
             finalScoreText.x = this.width / 2;
             finalScoreText.y = this.height / 2;
+            finalScoreText.userData = { isGameStateMessage: true };
             uiLayer.addChild(finalScoreText);
             
             const restartText = new PIXI.Text('Press SPACE to restart', new PIXI.TextStyle({
@@ -1566,8 +1507,46 @@ class JezzballGame {
             restartText.anchor.set(0.5);
             restartText.x = this.width / 2;
             restartText.y = this.height / 2 + 20;
+            restartText.userData = { isGameStateMessage: true };
             uiLayer.addChild(restartText);
         }
+    }
+    
+    updateStatsPanel() {
+        const statsPanel = document.getElementById('game-stats-panel');
+        if (!statsPanel) return;
+        
+        const statsContent = statsPanel.querySelector('.stats-content');
+        if (!statsContent) return;
+        
+        const capturePercentage = (this.capturedArea / this.totalArea) * 100;
+        
+        statsContent.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">${Utils.formatScore(this.score)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Lives</div>
+                <div class="stat-value">${this.lives}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Level</div>
+                <div class="stat-value">${this.level}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Time</div>
+                <div class="stat-value">${Math.ceil(this.timeLeft)}s</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Captured</div>
+                <div class="stat-value">${Math.round(capturePercentage * 100) / 100}%</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Direction</div>
+                <div class="stat-value">${this.wallDirection.toUpperCase()}</div>
+            </div>
+        `;
     }
     
     draw() {
@@ -1739,7 +1718,7 @@ class JezzballGame {
             this.ctx.fillStyle = '#00ffff';
             this.ctx.font = '24px Courier New';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('JEZZBALL', this.width / 2, this.height / 2 - 50);
+            this.ctx.fillText('CONTAINMENT GRID', this.width / 2, this.height / 2 - 50);
             this.ctx.font = '14px Courier New';
             this.ctx.fillText('Capture 75% of the area!', this.width / 2, this.height / 2 - 20);
             this.ctx.fillText('Left click: Start wall', this.width / 2, this.height / 2);
@@ -1798,7 +1777,7 @@ class JezzballGame {
         this.ctx.fillStyle = '#ffffff';
         this.ctx.font = '16px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('JEZZBALL', this.width / 2, this.height - 10);
+        this.ctx.fillText('CONTAINMENT GRID', this.width / 2, this.height - 10);
         this.ctx.textAlign = 'left';
     }
     

@@ -2006,56 +2006,40 @@ class WorkingManGame {
     }
     
     drawUIPixi(layer) {
-        const panel = new PIXI.Graphics();
-        panel.beginFill(0x000000, 0.7);
-        panel.drawRect(10, 10, 200, 100);
-        panel.endFill();
-        layer.addChild(panel);
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
+    }
+    
+    updateStatsPanel() {
+        const statsPanel = document.getElementById('game-stats-panel');
+        if (!statsPanel) return;
         
-        const textStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 16,
-            fill: 0xffffff
-        });
+        const statsContent = statsPanel.querySelector('.stats-content');
+        if (!statsContent) return;
         
-        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, textStyle);
-        scoreText.x = 20;
-        scoreText.y = 20;
-        layer.addChild(scoreText);
-        
-        const livesText = new PIXI.Text(`Lives: ${this.lives}`, textStyle);
-        livesText.x = 20;
-        livesText.y = 40;
-        layer.addChild(livesText);
-        
-        const levelText = new PIXI.Text(`Level: ${this.level}`, textStyle);
-        levelText.x = 20;
-        levelText.y = 60;
-        layer.addChild(levelText);
-        
-        // Power-up indicators
-        let powerUpY = 80;
+        let powerUpHTML = '';
         if (this.activePowerUps.speed) {
-            const speedText = new PIXI.Text('SPEED', new PIXI.TextStyle({
-                fontFamily: 'Courier New',
-                fontSize: 12,
-                fill: 0x00ff00
-            }));
-            speedText.x = 20;
-            speedText.y = powerUpY;
-            layer.addChild(speedText);
-            powerUpY += 15;
+            powerUpHTML += '<div class="stat-item"><div class="stat-label">Power-Up</div><div class="stat-value" style="color: #00ff00;">SPEED</div></div>';
         }
         if (this.activePowerUps.invincible) {
-            const invText = new PIXI.Text('INVINCIBLE', new PIXI.TextStyle({
-                fontFamily: 'Courier New',
-                fontSize: 12,
-                fill: 0xffff00
-            }));
-            invText.x = 20;
-            invText.y = powerUpY;
-            layer.addChild(invText);
+            powerUpHTML += '<div class="stat-item"><div class="stat-label">Power-Up</div><div class="stat-value" style="color: #ffff00;">INVINCIBLE</div></div>';
         }
+        
+        statsContent.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">${Utils.formatScore(this.score)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Lives</div>
+                <div class="stat-value">${this.lives}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Level</div>
+                <div class="stat-value">${this.level}</div>
+            </div>
+            ${powerUpHTML}
+        `;
     }
     
     drawGameStatePixi(layer) {
@@ -2073,7 +2057,7 @@ class WorkingManGame {
                 fontWeight: 'bold',
                 align: 'center'
             });
-            const title = new PIXI.Text('WORKING MAN', titleStyle);
+            const title = new PIXI.Text('RISE OF THE RIVETS', titleStyle);
             title.anchor.set(0.5);
             title.x = this.width / 2;
             title.y = this.height / 2 - 80;
@@ -2677,7 +2661,7 @@ class WorkingManGame {
         this.ctx.fillStyle = '#ffffff';
         this.ctx.font = '12px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('WORKING MAN', this.width / 2, this.height - 10);
+        this.ctx.fillText('RISE OF THE RIVETS', this.width / 2, this.height - 10);
         this.ctx.textAlign = 'left';
     }
     
@@ -2691,7 +2675,7 @@ class WorkingManGame {
             this.ctx.fillStyle = '#00ffff';
             this.ctx.font = '24px Courier New';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('WORKING MAN vs OLIGARCH', this.width / 2, this.height / 2 - 50);
+            this.ctx.fillText('RISE OF THE RIVETS', this.width / 2, this.height / 2 - 50);
             this.ctx.fillText('Climb to reach the Oligarch!', this.width / 2, this.height / 2 - 20);
             this.ctx.font = '16px Courier New';
             this.ctx.fillText('Arrow Keys: Move | Up: Jump/Climb Up | Down: Climb Down', this.width / 2, this.height / 2 + 10);

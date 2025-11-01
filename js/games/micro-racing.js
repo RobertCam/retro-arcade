@@ -791,7 +791,7 @@ class MicroRacingGame {
         this.ctx.fillStyle = '#00FFFF';
         this.ctx.font = 'bold 36px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('HOVER RACER', this.width / 2, this.height / 2 - 100);
+        this.ctx.fillText('HYPER RUNNERS', this.width / 2, this.height / 2 - 100);
         
         // Draw high score
         const topScore = highScoreManager.getTopScore('micro-racing');
@@ -1226,44 +1226,10 @@ class MicroRacingGame {
     }
     
     drawUIPixi(layer) {
-        const panel = new PIXI.Graphics();
-        panel.beginFill(0x000000, 0.7);
-        panel.drawRect(10, 10, 250, 120);
-        panel.endFill();
-        layer.addChild(panel);
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
         
-        const textStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 16,
-            fill: 0xffffff
-        });
-        
-        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, textStyle);
-        scoreText.x = 20;
-        scoreText.y = 30;
-        layer.addChild(scoreText);
-        
-        const timeText = new PIXI.Text(`Time: ${Math.max(0, Math.floor(this.timeLeft))}s`, textStyle);
-        timeText.x = 20;
-        timeText.y = 50;
-        layer.addChild(timeText);
-        
-        const livesText = new PIXI.Text(`Lives: ${this.lives}`, textStyle);
-        livesText.x = 20;
-        livesText.y = 70;
-        layer.addChild(livesText);
-        
-        const levelText = new PIXI.Text(`Level: ${this.level}`, textStyle);
-        levelText.x = 20;
-        levelText.y = 90;
-        layer.addChild(levelText);
-        
-        const checkpointText = new PIXI.Text(`Checkpoint: ${this.currentCheckpoint}/${this.checkpoints.length}`, textStyle);
-        checkpointText.x = 20;
-        checkpointText.y = 110;
-        layer.addChild(checkpointText);
-        
-        // Speedometer
+        // Speedometer still drawn on canvas (bottom right)
         const speed = Math.floor(this.playerCar.speed);
         const speedStyle = new PIXI.TextStyle({
             fontFamily: 'Courier New',
@@ -1273,7 +1239,7 @@ class MicroRacingGame {
         });
         const speedText = new PIXI.Text(`SPEED: ${speed}`, speedStyle);
         speedText.x = this.width - 150;
-        speedText.y = 30;
+        speedText.y = this.height - 40;
         layer.addChild(speedText);
         
         // Game state messages
@@ -1328,6 +1294,37 @@ class MicroRacingGame {
         }
     }
     
+    updateStatsPanel() {
+        const statsPanel = document.getElementById('game-stats-panel');
+        if (!statsPanel) return;
+        
+        const statsContent = statsPanel.querySelector('.stats-content');
+        if (!statsContent) return;
+        
+        statsContent.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">${Utils.formatScore(this.score)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Time</div>
+                <div class="stat-value">${Math.max(0, Math.floor(this.timeLeft))}s</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Lives</div>
+                <div class="stat-value">${this.lives}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Level</div>
+                <div class="stat-value">${this.level}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Checkpoint</div>
+                <div class="stat-value">${this.currentCheckpoint}/${this.checkpoints.length}</div>
+            </div>
+        `;
+    }
+    
     drawMenuPixi(layer) {
         const menuBg = new PIXI.Graphics();
         menuBg.beginFill(0x1a1a2e, 1);
@@ -1342,7 +1339,7 @@ class MicroRacingGame {
             fontWeight: 'bold',
             align: 'center'
         });
-        const title = new PIXI.Text('MICRO RACING', titleStyle);
+        const title = new PIXI.Text('HYPER RUNNERS', titleStyle);
         title.anchor.set(0.5);
         title.x = this.width / 2;
         title.y = this.height / 2 - 100;
