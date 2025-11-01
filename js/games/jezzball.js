@@ -1,11 +1,25 @@
-// Jezzball game implementation
+// Jezzball game implementation - PixiJS version
 class JezzballGame {
     constructor(canvas) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
         this.width = canvas.width;
         this.height = canvas.height;
+        this.isPreview = this.width < 400;
         
+        if (this.isPreview) {
+            this.ctx = canvas.getContext('2d');
+            this.graphics = null;
+            this.spriteManager = null;
+            this.nesEffects = null;
+        } else {
+            this.ctx = null;
+            this.graphics = new GraphicsCore(canvas, {
+                width: this.width,
+                height: this.height,
+                backgroundColor: 0x000011,
+                pixelPerfect: true
+            });
+        }
         
         // Game state
         this.gameState = 'menu'; // menu, playing, paused, gameOver
@@ -28,8 +42,22 @@ class JezzballGame {
         this.generateBackgroundPattern();
         
         // Effects
-        this.particles = new ParticleSystem();
-        this.screenEffects = new ScreenEffects(canvas);
+        if (this.isPreview) {
+            this.particles = new ParticleSystem();
+            this.screenEffects = new ScreenEffects(canvas);
+        } else {
+            this.particles = null; // Will create PixiJS particles as needed
+            this.screenEffects = null; // Will be set from nesEffects
+        }
+        
+        // PixiJS sprites (only for main game)
+        if (!this.isPreview) {
+            this.ballSprites = [];
+            this.wallSprites = [];
+            this.capturedAreaSprites = [];
+            this.cursorPreviewSprite = null;
+            this.currentWallSprite = null;
+        }
         
         // Input
         this.keys = {};
@@ -42,7 +70,56 @@ class JezzballGame {
         // Start game loop
         this.lastTime = 0;
         this.gameLoop = this.gameLoop.bind(this);
-        requestAnimationFrame(this.gameLoop);
+        
+        if (this.isPreview) {
+            requestAnimationFrame(this.gameLoop);
+        } else {
+            this.initGraphics();
+        }
+    }
+    
+    async initGraphics() {
+        if (this.isPreview) return;
+        await this.graphics.init();
+        if (!this.graphics || !this.graphics.isInitialized || !this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
+            console.error('Graphics initialization failed, falling back to requestAnimationFrame');
+            requestAnimationFrame(this.gameLoop);
+            return;
+        }
+        this.finishGraphicsInit();
+    }
+    
+    finishGraphicsInit() {
+        this.spriteManager = new SpriteManager(this.graphics);
+        this.nesEffects = this.graphics.getScreenEffects();
+        this.screenEffects = this.nesEffects;
+        this.initSprites();
+        this.startGameLoop();
+    }
+    
+    initSprites() {
+        if (this.isPreview) return;
+        this.updateBallSprites();
+        this.updateWallSprites();
+    }
+    
+    startGameLoop() {
+        if (this.isPreview) {
+            requestAnimationFrame(this.gameLoop);
+            return;
+        }
+        
+        const ticker = this.graphics.getTicker();
+        if (ticker) {
+            // Store the ticker callback so we can remove it later
+            this.tickerCallback = (deltaTime) => {
+                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            };
+            ticker.add(this.tickerCallback);
+        } else {
+            console.warn('PixiJS ticker not available, falling back to requestAnimationFrame');
+            requestAnimationFrame(this.gameLoop);
+        }
     }
     
     generateBackgroundPattern() {
@@ -341,7 +418,9 @@ class JezzballGame {
                     // Ball hit extending wall - cancel wall and lose life
                     this.cancelWall();
                     this.lives--;
-                    this.screenEffects.flash('#ff0000', 10);
+                    if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
+                        this.screenEffects.flash('#ff0000', 10);
+                    }
                     
                     if (this.lives <= 0) {
                         this.gameOver();
@@ -352,8 +431,17 @@ class JezzballGame {
         }
         
         // Update effects
-        this.particles.update();
-        this.screenEffects.update();
+        if (this.isPreview) {
+            if (this.particles) this.particles.update();
+            if (this.screenEffects) this.screenEffects.update();
+        } else {
+            // Update sprite positions
+            this.updateBallSprites();
+            this.updateWallSprites();
+            if (this.nesEffects && typeof this.nesEffects.update === 'function') {
+                this.nesEffects.update();
+            }
+        }
     }
     
     updateWall() {
@@ -484,7 +572,16 @@ class JezzballGame {
         
         this.currentWall = null;
         this.isDrawing = false;
-        this.screenEffects.shake(3, 5);
+        
+        // Update sprites for new wall
+        if (!this.isPreview) {
+            this.updateWallSprites();
+            this.updateCapturedAreaSprites();
+        }
+        
+        if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
+            this.screenEffects.shake(3, 5);
+        }
     }
     
     calculateCapturedAreas() {
@@ -711,7 +808,9 @@ class JezzballGame {
     cancelWall() {
         this.currentWall = null;
         this.isDrawing = false;
-        this.screenEffects.shake(8, 15);
+        if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
+            this.screenEffects.shake(8, 15);
+        }
     }
     
     calculateWallArea(wall) {
@@ -760,24 +859,35 @@ class JezzballGame {
             ball.vx -= 2 * dot * nx;
             ball.vy -= 2 * dot * ny;
             
-            this.screenEffects.shake(2, 3);
+            if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
+                this.screenEffects.shake(2, 3);
+            }
         }
     }
     
     levelUp() {
         this.level++;
         this.score += 500 * this.level; // Bonus for completing level
-        this.screenEffects.flash('#00ff00', 15);
+        if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
+            this.screenEffects.flash('#00ff00', 15);
+        }
         
         // Generate new background pattern
         this.generateBackgroundPattern();
         
         this.createLevel();
+        
+        // Update sprites for new level
+        if (!this.isPreview) {
+            this.updateBallSprites();
+        }
     }
     
     timeUp() {
         this.lives--;
-        this.screenEffects.flash('#ff0000', 10);
+        if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
+            this.screenEffects.flash('#ff0000', 10);
+        }
         
         if (this.lives <= 0) {
             this.gameOver();
@@ -952,6 +1062,453 @@ class JezzballGame {
         this.ctx.restore();
     }
     
+    // PixiJS rendering methods
+    updateBallSprites() {
+        if (this.isPreview || !this.spriteManager || !this.graphics) return;
+        
+        // Remove sprites for balls that no longer exist
+        for (let i = this.ballSprites.length - 1; i >= 0; i--) {
+            const sprite = this.ballSprites[i];
+            if (!this.balls.find(ball => ball.sprite === sprite)) {
+                if (sprite && sprite.parent) {
+                    sprite.parent.removeChild(sprite);
+                }
+                this.ballSprites.splice(i, 1);
+            }
+        }
+        
+        // Create or update sprites for each ball
+        for (let ball of this.balls) {
+            if (ball.sprite && this.ballSprites.includes(ball.sprite)) {
+                // Update existing sprite position
+                ball.sprite.x = ball.x - ball.radius;
+                ball.sprite.y = ball.y - ball.radius;
+            } else {
+                // Create new sprite
+                const ballColor = parseInt(ball.color.replace('#', ''), 16);
+                const ballSprite = new PIXI.Graphics();
+                
+                // Main ball with glow
+                ballSprite.beginFill(ballColor, 1);
+                ballSprite.drawCircle(ball.radius, ball.radius, ball.radius);
+                ballSprite.endFill();
+                
+                // Outer glow effect
+                ballSprite.lineStyle(2, ballColor, 0.6);
+                ballSprite.drawCircle(ball.radius, ball.radius, ball.radius + 2);
+                ballSprite.lineStyle(1, ballColor, 0.3);
+                ballSprite.drawCircle(ball.radius, ball.radius, ball.radius + 4);
+                
+                // Highlight
+                ballSprite.beginFill(0xffffff, 0.4);
+                ballSprite.drawCircle(ball.radius - ball.radius * 0.3, ball.radius - ball.radius * 0.3, ball.radius * 0.3);
+                ballSprite.endFill();
+                
+                ballSprite.x = ball.x - ball.radius;
+                ballSprite.y = ball.y - ball.radius;
+                
+                this.graphics.addToLayer(ballSprite, 'foreground');
+                this.ballSprites.push(ballSprite);
+                ball.sprite = ballSprite;
+            }
+        }
+    }
+    
+    updateWallSprites() {
+        if (this.isPreview || !this.spriteManager || !this.graphics) return;
+        
+        // Remove old sprites
+        this.wallSprites.forEach(sprite => {
+            if (sprite && sprite.parent) {
+                sprite.parent.removeChild(sprite);
+            }
+        });
+        this.wallSprites = [];
+        
+        // Create sprites for completed walls
+        for (let wall of this.walls) {
+            const wallGraphics = new PIXI.Graphics();
+            
+            // Main wall line with glow
+            wallGraphics.lineStyle(4, 0xffffff, 1);
+            wallGraphics.moveTo(wall.startX, wall.startY);
+            wallGraphics.lineTo(wall.endX, wall.endY);
+            
+            // Outer glow
+            wallGraphics.lineStyle(6, 0xffffff, 0.4);
+            wallGraphics.moveTo(wall.startX, wall.startY);
+            wallGraphics.lineTo(wall.endX, wall.endY);
+            
+            // Main line again on top
+            wallGraphics.lineStyle(4, 0xffffff, 1);
+            wallGraphics.moveTo(wall.startX, wall.startY);
+            wallGraphics.lineTo(wall.endX, wall.endY);
+            
+            this.graphics.addToLayer(wallGraphics, 'foreground');
+            this.wallSprites.push(wallGraphics);
+            wall.sprite = wallGraphics;
+        }
+    }
+    
+    updateCapturedAreaSprites() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove old sprites
+        this.capturedAreaSprites.forEach(sprite => {
+            if (sprite && sprite.parent) {
+                sprite.parent.removeChild(sprite);
+            }
+        });
+        this.capturedAreaSprites = [];
+        
+        // Create sprites for captured areas
+        for (let wall of this.walls) {
+            if (wall.capturedAreas) {
+                for (let area of wall.capturedAreas) {
+                    const areaGraphics = new PIXI.Graphics();
+                    areaGraphics.beginFill(0x000000, 1);
+                    areaGraphics.drawRect(0, 0, area.width, area.height);
+                    areaGraphics.endFill();
+                    areaGraphics.x = area.x;
+                    areaGraphics.y = area.y;
+                    
+                    this.graphics.addToLayer(areaGraphics, 'background');
+                    this.capturedAreaSprites.push(areaGraphics);
+                }
+            }
+        }
+    }
+    
+    updateCurrentWallSprite() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove old sprite
+        if (this.currentWallSprite && this.currentWallSprite.parent) {
+            this.currentWallSprite.parent.removeChild(this.currentWallSprite);
+        }
+        
+        if (!this.currentWall) {
+            this.currentWallSprite = null;
+            return;
+        }
+        
+        const wallContainer = new PIXI.Container();
+        const wallGraphics = new PIXI.Graphics();
+        
+        // Dashed line for extending wall
+        const length = Math.sqrt(
+            Math.pow(this.currentWall.endX - this.currentWall.startX, 2) +
+            Math.pow(this.currentWall.endY - this.currentWall.startY, 2)
+        );
+        
+        // Draw dashed line
+        const dashLength = 8;
+        const gapLength = 4;
+        const segments = Math.floor(length / (dashLength + gapLength));
+        
+        wallGraphics.lineStyle(3, 0x00ffff, 1);
+        for (let i = 0; i < segments; i++) {
+            const startPercent = (i * (dashLength + gapLength)) / length;
+            const endPercent = ((i * (dashLength + gapLength)) + dashLength) / length;
+            
+            const startX = this.currentWall.startX + (this.currentWall.endX - this.currentWall.startX) * startPercent;
+            const startY = this.currentWall.startY + (this.currentWall.endY - this.currentWall.startY) * startPercent;
+            const endX = this.currentWall.startX + (this.currentWall.endX - this.currentWall.startX) * endPercent;
+            const endY = this.currentWall.startY + (this.currentWall.endY - this.currentWall.startY) * endPercent;
+            
+            if (i === 0) {
+                wallGraphics.moveTo(startX, startY);
+            }
+            wallGraphics.lineTo(endX, endY);
+            wallGraphics.moveTo(endX + (this.currentWall.endX - this.currentWall.startX) * (gapLength / length),
+                                 endY + (this.currentWall.endY - this.currentWall.startY) * (gapLength / length));
+        }
+        
+        // Glow effect
+        wallGraphics.lineStyle(5, 0x00ffff, 0.5);
+        wallGraphics.moveTo(this.currentWall.startX, this.currentWall.startY);
+        wallGraphics.lineTo(this.currentWall.endX, this.currentWall.endY);
+        
+        wallContainer.addChild(wallGraphics);
+        
+        // Click point indicator
+        const clickIndicator = new PIXI.Graphics();
+        clickIndicator.beginFill(0xffff00, 1);
+        clickIndicator.drawCircle(4, 4, 4);
+        clickIndicator.endFill();
+        
+        // Glow for click indicator
+        clickIndicator.lineStyle(2, 0xffff00, 0.6);
+        clickIndicator.drawCircle(4, 4, 6);
+        
+        clickIndicator.x = this.currentWall.clickX - 4;
+        clickIndicator.y = this.currentWall.clickY - 4;
+        wallContainer.addChild(clickIndicator);
+        
+        this.graphics.addToLayer(wallContainer, 'foreground');
+        this.currentWallSprite = wallContainer;
+    }
+    
+    updateCursorPreviewSprite() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove old sprite
+        if (this.cursorPreviewSprite && this.cursorPreviewSprite.parent) {
+            this.cursorPreviewSprite.parent.removeChild(this.cursorPreviewSprite);
+        }
+        
+        if (this.isDrawing || this.gameState !== 'playing') {
+            this.cursorPreviewSprite = null;
+            return;
+        }
+        
+        const previewContainer = new PIXI.Container();
+        
+        // Preview line (dashed)
+        const previewLine = new PIXI.Graphics();
+        previewLine.lineStyle(2, 0x666666, 0.8);
+        
+        let startX, startY, endX, endY;
+        if (this.wallDirection === 'horizontal') {
+            startX = 0;
+            startY = this.mouse.y;
+            endX = this.width;
+            endY = this.mouse.y;
+        } else {
+            startX = this.mouse.x;
+            startY = 0;
+            endX = this.mouse.x;
+            endY = this.height;
+        }
+        
+        // Draw dashed line manually
+        const dashLength = 4;
+        const gapLength = 4;
+        const length = this.wallDirection === 'horizontal' ? this.width : this.height;
+        const segments = Math.floor(length / (dashLength + gapLength));
+        
+        for (let i = 0; i < segments; i++) {
+            const startPercent = (i * (dashLength + gapLength)) / length;
+            const endPercent = ((i * (dashLength + gapLength)) + dashLength) / length;
+            
+            const segStartX = startX + (endX - startX) * startPercent;
+            const segStartY = startY + (endY - startY) * startPercent;
+            const segEndX = startX + (endX - startX) * endPercent;
+            const segEndY = startY + (endY - startY) * endPercent;
+            
+            previewLine.moveTo(segStartX, segStartY);
+            previewLine.lineTo(segEndX, segEndY);
+        }
+        
+        previewContainer.addChild(previewLine);
+        
+        // Crosshair
+        const crosshair = new PIXI.Graphics();
+        crosshair.lineStyle(1, 0xffffff, 1);
+        crosshair.moveTo(this.mouse.x - 10, this.mouse.y);
+        crosshair.lineTo(this.mouse.x + 10, this.mouse.y);
+        crosshair.moveTo(this.mouse.x, this.mouse.y - 10);
+        crosshair.lineTo(this.mouse.x, this.mouse.y + 10);
+        
+        previewContainer.addChild(crosshair);
+        
+        this.graphics.addToLayer(previewContainer, 'ui');
+        this.cursorPreviewSprite = previewContainer;
+    }
+    
+    drawPixi() {
+        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
+        
+        // Update captured areas
+        this.updateCapturedAreaSprites();
+        
+        // Update current wall
+        this.updateCurrentWallSprite();
+        
+        // Update cursor preview
+        this.updateCursorPreviewSprite();
+        
+        // Draw UI
+        this.drawUIPixi();
+    }
+    
+    drawUIPixi() {
+        if (this.isPreview || !this.graphics) return;
+        
+        const uiLayer = this.graphics.getLayer('ui');
+        if (!uiLayer) return;
+        
+        // Remove existing UI text sprites (keep cursor preview)
+        const children = uiLayer.children.slice();
+        children.forEach(child => {
+            if (child !== this.cursorPreviewSprite) {
+                uiLayer.removeChild(child);
+            }
+        });
+        
+        // Create UI panel background
+        const panel = new PIXI.Graphics();
+        panel.beginFill(0x000000, 0.7);
+        panel.drawRoundedRect(0, 0, 250, 150, 5);
+        panel.endFill();
+        panel.x = 10;
+        panel.y = 10;
+        uiLayer.addChild(panel);
+        
+        // Create text style
+        const textStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0xffffff,
+            fontWeight: 'bold',
+            stroke: 0x000000,
+            strokeThickness: 2
+        });
+        
+        // Score
+        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, textStyle);
+        scoreText.x = 20;
+        scoreText.y = 20;
+        uiLayer.addChild(scoreText);
+        
+        // Lives
+        const livesText = new PIXI.Text(`Lives: ${this.lives}`, textStyle);
+        livesText.x = 20;
+        livesText.y = 40;
+        uiLayer.addChild(livesText);
+        
+        // Level
+        const levelText = new PIXI.Text(`Level: ${this.level}`, textStyle);
+        levelText.x = 20;
+        levelText.y = 60;
+        uiLayer.addChild(levelText);
+        
+        // Time
+        const timeText = new PIXI.Text(`Time: ${Math.ceil(this.timeLeft)}`, textStyle);
+        timeText.x = 20;
+        timeText.y = 80;
+        uiLayer.addChild(timeText);
+        
+        // Capture percentage
+        const capturePercentage = (this.capturedArea / this.totalArea) * 100;
+        const captureText = new PIXI.Text(`Captured: ${Math.round(capturePercentage * 100) / 100}%`, textStyle);
+        captureText.x = 20;
+        captureText.y = 100;
+        uiLayer.addChild(captureText);
+        
+        // Wall direction
+        const directionText = new PIXI.Text(`Direction: ${this.wallDirection.toUpperCase()}`, textStyle);
+        directionText.x = 20;
+        directionText.y = 120;
+        uiLayer.addChild(directionText);
+        
+        // Game state messages
+        if (this.gameState === 'menu') {
+            const menuStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 24,
+                fill: 0x00ffff,
+                fontWeight: 'bold',
+                stroke: 0x000000,
+                strokeThickness: 3,
+                align: 'center'
+            });
+            
+            const titleText = new PIXI.Text('JEZZBALL', menuStyle);
+            titleText.anchor.set(0.5);
+            titleText.x = this.width / 2;
+            titleText.y = this.height / 2 - 50;
+            uiLayer.addChild(titleText);
+            
+            const smallStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 14,
+                fill: 0xffffff,
+                align: 'center'
+            });
+            
+            const instructions = [
+                'Capture 75% of the area!',
+                'Left click: Start wall',
+                'Right click or Ctrl: Change direction',
+                'Press SPACE to start'
+            ];
+            
+            instructions.forEach((text, i) => {
+                const instructionText = new PIXI.Text(text, smallStyle);
+                instructionText.anchor.set(0.5);
+                instructionText.x = this.width / 2;
+                instructionText.y = this.height / 2 - 20 + (i * 20);
+                uiLayer.addChild(instructionText);
+            });
+        } else if (this.gameState === 'paused') {
+            const pauseStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 24,
+                fill: 0xffff00,
+                fontWeight: 'bold',
+                stroke: 0x000000,
+                strokeThickness: 3,
+                align: 'center'
+            });
+            
+            const pauseText = new PIXI.Text('PAUSED', pauseStyle);
+            pauseText.anchor.set(0.5);
+            pauseText.x = this.width / 2;
+            pauseText.y = this.height / 2;
+            uiLayer.addChild(pauseText);
+            
+            const resumeText = new PIXI.Text('Press P to resume', new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 14,
+                fill: 0xffffff,
+                align: 'center'
+            }));
+            resumeText.anchor.set(0.5);
+            resumeText.x = this.width / 2;
+            resumeText.y = this.height / 2 + 30;
+            uiLayer.addChild(resumeText);
+        } else if (this.gameState === 'gameOver') {
+            const gameOverStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 24,
+                fill: 0xff0000,
+                fontWeight: 'bold',
+                stroke: 0x000000,
+                strokeThickness: 3,
+                align: 'center'
+            });
+            
+            const gameOverText = new PIXI.Text('GAME OVER', gameOverStyle);
+            gameOverText.anchor.set(0.5);
+            gameOverText.x = this.width / 2;
+            gameOverText.y = this.height / 2 - 30;
+            uiLayer.addChild(gameOverText);
+            
+            const finalScoreText = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 14,
+                fill: 0xffffff,
+                align: 'center'
+            }));
+            finalScoreText.anchor.set(0.5);
+            finalScoreText.x = this.width / 2;
+            finalScoreText.y = this.height / 2;
+            uiLayer.addChild(finalScoreText);
+            
+            const restartText = new PIXI.Text('Press SPACE to restart', new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 14,
+                fill: 0xffffff,
+                align: 'center'
+            }));
+            restartText.anchor.set(0.5);
+            restartText.x = this.width / 2;
+            restartText.y = this.height / 2 + 20;
+            uiLayer.addChild(restartText);
+        }
+    }
+    
     draw() {
         // Clear canvas
         this.ctx.fillStyle = '#000011';
@@ -961,7 +1518,10 @@ class JezzballGame {
         this.drawBackground();
         
         // Apply screen shake
-        const shake = this.screenEffects.getShakeOffset();
+        let shake = { x: 0, y: 0 };
+        if (this.screenEffects && typeof this.screenEffects.getShakeOffset === 'function') {
+            shake = this.screenEffects.getShakeOffset();
+        }
         this.ctx.save();
         this.ctx.translate(shake.x, shake.y);
         
@@ -1054,13 +1614,17 @@ class JezzballGame {
         this.ctx.restore();
         
         // Draw particles
-        this.particles.draw(this.ctx);
+        if (this.particles && typeof this.particles.draw === 'function') {
+            this.particles.draw(this.ctx);
+        }
         
         // Draw UI
         this.drawUI();
         
         // Draw screen effects
-        this.screenEffects.drawFlash();
+        if (this.screenEffects && typeof this.screenEffects.drawFlash === 'function') {
+            this.screenEffects.drawFlash();
+        }
     }
     
     drawCursorPreview() {
@@ -1182,9 +1746,38 @@ class JezzballGame {
         this.lastTime = currentTime;
         
         this.update(deltaTime);
-        this.draw();
         
-        requestAnimationFrame(this.gameLoop);
+        if (this.isPreview) {
+            this.draw();
+            requestAnimationFrame(this.gameLoop);
+        } else {
+            // PixiJS handles rendering automatically, but we still need to update our draw calls
+            this.drawPixi();
+        }
+    }
+    
+    cleanup() {
+        // Remove ticker if using PixiJS
+        if (!this.isPreview && this.graphics) {
+            const ticker = this.graphics.getTicker();
+            if (ticker && this.tickerCallback) {
+                ticker.remove(this.tickerCallback);
+            }
+            
+            // Clean up PixiJS app
+            if (this.graphics.app) {
+                this.graphics.app.destroy(true, { children: true, texture: true, baseTexture: true });
+            }
+        }
+        
+        // Clean up sprites
+        if (!this.isPreview) {
+            this.ballSprites = [];
+            this.wallSprites = [];
+            this.capturedAreaSprites = [];
+            this.cursorPreviewSprite = null;
+            this.currentWallSprite = null;
+        }
     }
 }
 
