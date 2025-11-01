@@ -1,4 +1,4 @@
-// Working Man vs Oligarch - Donkey Kong inspired platformer
+// Working Man vs Oligarch - Donkey Kong inspired platformer - PixiJS version
 // Version 2.0 - Fixed ladder exploit and improved level design
 console.log('Working Man game script loaded v2.0');
 
@@ -6,9 +6,24 @@ class WorkingManGame {
     constructor(canvas) {
         console.log('WorkingManGame constructor called');
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
         this.width = canvas.width;
         this.height = canvas.height;
+        this.isPreview = canvas.id === 'working-man-preview' || this.width < 400;
+        
+        if (this.isPreview) {
+            this.ctx = canvas.getContext('2d');
+            this.graphics = null;
+            this.spriteManager = null;
+            this.nesEffects = null;
+        } else {
+            this.ctx = null;
+            this.graphics = new GraphicsCore(canvas, {
+                width: this.width,
+                height: this.height,
+                backgroundColor: 0x1a1a2e,
+                pixelPerfect: true
+            });
+        }
         
         // Game state
         this.gameState = 'menu'; // menu, playing, paused, gameOver
@@ -76,11 +91,31 @@ class WorkingManGame {
         this.powerUps = [];
         
         // Animation and effects
-        this.particles = new ParticleSystem();
-        this.screenEffects = new ScreenEffects(canvas);
-        this.tweenManager = new TweenManager();
-        this.crtFilter = new CRTFilter(canvas);
-        this.playerTrail = new MotionTrail(10, 0.90);
+        if (this.isPreview) {
+            this.particles = new ParticleSystem();
+            this.screenEffects = new ScreenEffects(canvas);
+            this.tweenManager = new TweenManager();
+            this.crtFilter = new CRTFilter(canvas);
+            this.playerTrail = new MotionTrail(10, 0.90);
+        } else {
+            this.particles = null; // Will create PixiJS particles as needed
+            this.screenEffects = null; // Will be set from nesEffects
+            this.tweenManager = new TweenManager();
+            this.crtFilter = null; // CRT handled by NES effects
+            this.playerTrail = null; // Will be implemented with PixiJS
+        }
+        
+        // PixiJS sprites (only for main game)
+        if (!this.isPreview) {
+            this.platformSprites = [];
+            this.ladderSprites = [];
+            this.playerSprite = null;
+            this.oligarchSprite = null;
+            this.moneyBagSprites = [];
+            this.powerUpSprites = [];
+            this.retirementGoalSprite = null;
+            this.playerTrailSprites = [];
+        }
         
         // Power-up types
         this.powerUpTypes = {
@@ -109,9 +144,6 @@ class WorkingManGame {
         // Pre-designed levels
         this.levelLayouts = this.createLevelLayouts();
         
-        // Check if this is a preview canvas
-        this.isPreview = canvas.id === 'working-man-preview';
-        
         // Start in menu state
         this.gameState = 'menu';
         
@@ -124,7 +156,54 @@ class WorkingManGame {
             // For preview, just draw once
             this.drawPreview();
         } else {
-        this.gameLoop();
+            this.initGraphics();
+        }
+    }
+    
+    async initGraphics() {
+        if (this.isPreview) return;
+        await this.graphics.init();
+        if (!this.graphics || !this.graphics.isInitialized || !this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
+            console.error('Graphics initialization failed, falling back to requestAnimationFrame');
+            this.gameLoop();
+            return;
+        }
+        this.finishGraphicsInit();
+    }
+    
+    finishGraphicsInit() {
+        this.spriteManager = new SpriteManager(this.graphics);
+        this.nesEffects = this.graphics.getScreenEffects();
+        this.screenEffects = this.nesEffects;
+        this.initSprites();
+        this.startGameLoop();
+    }
+    
+    initSprites() {
+        if (this.isPreview) return;
+        this.updatePlatformSprites();
+        this.updateLadderSprites();
+        this.updateMoneyBagSprites();
+        this.updatePowerUpSprites();
+        this.updateRetirementGoalSprite();
+    }
+    
+    startGameLoop() {
+        if (this.isPreview) {
+            this.gameLoop();
+            return;
+        }
+        
+        const ticker = this.graphics.getTicker();
+        if (ticker) {
+            // Store the ticker callback so we can remove it later
+            this.tickerCallback = (deltaTime) => {
+                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            };
+            ticker.add(this.tickerCallback);
+        } else {
+            console.warn('PixiJS ticker not available, falling back to requestAnimationFrame');
+            this.gameLoop();
         }
     }
     
@@ -660,7 +739,12 @@ class WorkingManGame {
         this.retirementGoal.glowTimer = 0;
         
         // Clear trail
-        this.playerTrail.clear();
+        if (this.playerTrail && typeof this.playerTrail.clear === 'function') {
+            this.playerTrail.clear();
+        }
+        if (!this.isPreview) {
+            this.playerTrailSprites = [];
+        }
     }
     
     setupInput() {
@@ -925,11 +1009,15 @@ class WorkingManGame {
                 // Normal ground jump
                 this.player.vy = -this.player.jumpPower;
                 this.player.onGround = false;
-                this.particles.sparkBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 5, '#00ffff');
+                if (this.particles && typeof this.particles.sparkBurst === 'function') {
+                    this.particles.sparkBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 5, '#00ffff');
+                }
             } else if (this.player.atLadderTop || (wasOnLadder && !this.player.onLadder && !this.player.onGround)) {
                 // At ladder top OR just exited ladder - allow jump to reach platform
                 this.player.vy = -this.player.jumpPower * 0.85; // Strong jump from ladder top
-                this.particles.sparkBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 3, '#00ffff');
+                if (this.particles && typeof this.particles.sparkBurst === 'function') {
+                    this.particles.sparkBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 3, '#00ffff');
+                }
                 // Clear ladder state after jumping
                 this.player.onLadder = false;
                 this.player.climbing = false;
@@ -962,13 +1050,15 @@ class WorkingManGame {
         this.player.x = Math.max(0, Math.min(this.width - this.player.width, this.player.x));
         
         // Add to motion trail
-        if (Math.abs(this.player.vx) > 0.1 || Math.abs(this.player.vy) > 0.1) {
-            this.playerTrail.addPoint(
-                this.player.x + this.player.width / 2,
-                this.player.y + this.player.height / 2,
-                this.player.invincible ? '#ffff00' : '#00ffff',
-                3
-            );
+        if (this.playerTrail && typeof this.playerTrail.addPoint === 'function') {
+            if (Math.abs(this.player.vx) > 0.1 || Math.abs(this.player.vy) > 0.1) {
+                this.playerTrail.addPoint(
+                    this.player.x + this.player.width / 2,
+                    this.player.y + this.player.height / 2,
+                    this.player.invincible ? '#ffff00' : '#00ffff',
+                    3
+                );
+            }
         }
         
         // Update invincibility
@@ -1142,7 +1232,9 @@ class WorkingManGame {
             const moneyBag = this.moneyBags[i];
             if (this.checkCollision(this.player, moneyBag)) {
                 this.loseLife();
-                    this.particles.explode(moneyBag.x + moneyBag.width/2, moneyBag.y + moneyBag.height/2, 10, '#ff0000');
+                    if (this.particles && typeof this.particles.explode === 'function') {
+                        this.particles.explode(moneyBag.x + moneyBag.width/2, moneyBag.y + moneyBag.height/2, 10, '#ff0000');
+                    }
                 this.moneyBags.splice(i, 1);
                 break;
                 }
@@ -1164,8 +1256,12 @@ class WorkingManGame {
         const powerUpData = this.powerUpTypes[powerUp.type];
         
         this.score += 200;
-        this.screenEffects.flash(powerUpData.color, 10, 0.5);
-        this.particles.glowExplosion(powerUp.x + powerUp.width/2, powerUp.y + powerUp.height/2, 20, powerUpData.color);
+        if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
+            this.screenEffects.flash(powerUpData.color, 10, 0.5);
+        }
+        if (this.particles && typeof this.particles.glowExplosion === 'function') {
+            this.particles.glowExplosion(powerUp.x + powerUp.width/2, powerUp.y + powerUp.height/2, 20, powerUpData.color);
+        }
         
         switch (powerUp.type) {
             case 'SPEED_BOOST':
@@ -1180,7 +1276,9 @@ class WorkingManGame {
                 break;
             case 'EXTRA_LIFE':
                 this.lives++;
-                this.screenEffects.shake(3, 5);
+                if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
+                    this.screenEffects.shake(3, 5);
+                }
                 break;
             case 'SLOW_TIME':
                 this.activePowerUps.slowTime = true;
@@ -1222,23 +1320,40 @@ class WorkingManGame {
     }
     
     updateEffects() {
-        this.particles.update();
-        this.screenEffects.update();
+        if (this.isPreview) {
+            if (this.particles) this.particles.update();
+            if (this.screenEffects) this.screenEffects.update();
+            if (this.playerTrail) this.playerTrail.update();
+        } else {
+            if (this.nesEffects && typeof this.nesEffects.update === 'function') {
+                this.nesEffects.update();
+            }
+        }
         this.tweenManager.update(performance.now());
-        this.playerTrail.update();
     }
     
     levelUp() {
         if (this.level < this.maxLevel) {
         this.level++;
             this.score += 1000 * this.level;
-            this.screenEffects.flash('#00ff00', 15, 0.4);
-            this.screenEffects.ripple(this.retirementGoal.x + this.retirementGoal.width/2, 
-                                     this.retirementGoal.y + this.retirementGoal.height/2, 200);
-            this.particles.glowExplosion(this.retirementGoal.x + this.retirementGoal.width/2,
-                                        this.retirementGoal.y + this.retirementGoal.height/2,
-                                        30, '#00ff00');
+            if (this.screenEffects) {
+                if (typeof this.screenEffects.flash === 'function') {
+                    this.screenEffects.flash('#00ff00', 15, 0.4);
+                }
+                if (typeof this.screenEffects.ripple === 'function') {
+                    this.screenEffects.ripple(this.retirementGoal.x + this.retirementGoal.width/2, 
+                                         this.retirementGoal.y + this.retirementGoal.height/2, 200);
+                }
+            }
+            if (this.particles && typeof this.particles.glowExplosion === 'function') {
+                this.particles.glowExplosion(this.retirementGoal.x + this.retirementGoal.width/2,
+                                            this.retirementGoal.y + this.retirementGoal.height/2,
+                                            30, '#00ff00');
+            }
         this.generateLevel();
+        if (!this.isPreview) {
+            this.initSprites(); // Refresh sprites after level generation
+        }
         } else {
             this.gameComplete();
         }
@@ -1247,7 +1362,9 @@ class WorkingManGame {
     gameComplete() {
         this.gameState = 'complete';
         this.score += 5000; // Bonus for completion
-        this.screenEffects.flash('#ffd700', 30, 0.6);
+        if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
+            this.screenEffects.flash('#ffd700', 30, 0.6);
+        }
         
         if (highScoreManager.checkHighScore('working-man', this.score)) {
             highScoreManager.requestNameEntry('working-man', this.score);
@@ -1258,10 +1375,22 @@ class WorkingManGame {
         if (this.player.invincible) return;
         
         this.lives--;
-        this.screenEffects.shake(8, 15);
-        this.screenEffects.flash('#ff0000', 10, 0.5);
-        this.particles.explode(this.player.x + this.player.width/2, this.player.y + this.player.height/2, 15, '#ff0000');
-        this.particles.sparkBurst(this.player.x + this.player.width/2, this.player.y + this.player.height/2, 10, '#ff6600');
+        if (this.screenEffects) {
+            if (typeof this.screenEffects.shake === 'function') {
+                this.screenEffects.shake(8, 15);
+            }
+            if (typeof this.screenEffects.flash === 'function') {
+                this.screenEffects.flash('#ff0000', 10, 0.5);
+            }
+        }
+        if (this.particles) {
+            if (typeof this.particles.explode === 'function') {
+                this.particles.explode(this.player.x + this.player.width/2, this.player.y + this.player.height/2, 15, '#ff0000');
+            }
+            if (typeof this.particles.sparkBurst === 'function') {
+                this.particles.sparkBurst(this.player.x + this.player.width/2, this.player.y + this.player.height/2, 10, '#ff6600');
+            }
+        }
         
         if (this.lives <= 0) {
             this.gameOver();
@@ -1273,7 +1402,12 @@ class WorkingManGame {
             this.player.vy = 0;
             this.player.invincible = true;
             this.player.invincibleTimer = 120; // 2 seconds of invincibility
-            this.playerTrail.clear();
+            if (this.playerTrail && typeof this.playerTrail.clear === 'function') {
+                this.playerTrail.clear();
+            }
+            if (!this.isPreview) {
+                this.playerTrailSprites = []; // Clear trail sprites
+            }
         }
     }
     
@@ -1291,18 +1425,89 @@ class WorkingManGame {
         this.lastTime = currentTime;
         
         this.update(deltaTime);
-        this.draw();
         
-        requestAnimationFrame((time) => this.gameLoop(time));
+        if (this.isPreview) {
+            this.draw();
+            requestAnimationFrame((time) => this.gameLoop(time));
+        } else {
+            // PixiJS handles rendering automatically, but we still need to update our draw calls
+            this.drawPixi();
+            // Ticker handles loop, so don't call requestAnimationFrame
+        }
+    }
+    
+    drawPixi() {
+        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
+        
+        // Clear all layers
+        const bgLayer = this.graphics.getLayer('background');
+        const fgLayer = this.graphics.getLayer('foreground');
+        const uiLayer = this.graphics.getLayer('ui');
+        
+        bgLayer.removeChildren();
+        fgLayer.removeChildren();
+        uiLayer.removeChildren();
+        
+        // Draw background
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0x1a1a2e, 1);
+        bg.drawRect(0, 0, this.width, this.height);
+        bg.endFill();
+        bgLayer.addChild(bg);
+        
+        if (this.gameState === 'playing') {
+            // Draw platforms
+            this.drawPlatformsPixi(fgLayer);
+            
+            // Draw ladders
+            this.drawLaddersPixi(fgLayer);
+            
+            // Draw retirement goal
+            this.drawRetirementGoalPixi(fgLayer);
+            
+            // Draw power-ups
+            this.drawPowerUpsPixi(fgLayer);
+            
+            // Draw money bags
+            this.drawMoneyBagsPixi(fgLayer);
+            
+            // Draw player trail
+            this.drawPlayerTrailPixi(fgLayer);
+            
+            // Draw oligarch
+            this.drawOligarchPixi(fgLayer);
+            
+            // Draw player
+            this.drawPlayerPixi(fgLayer);
+        }
+        
+        // Draw UI
+        this.drawUIPixi(uiLayer);
+        
+        // Draw game state messages
+        this.drawGameStatePixi(uiLayer);
     }
     
     draw() {
+        if (this.isPreview) {
+            this.drawCanvas2D();
+            return;
+        }
+        
+        // PixiJS rendering
+        this.drawPixi();
+    }
+    
+    drawCanvas2D() {
         // Clear canvas
         this.ctx.fillStyle = '#1a1a2e';
         this.ctx.fillRect(0, 0, this.width, this.height);
         
         // Apply screen effects transform
-        const transform = this.screenEffects.getTransform();
+        let transform = { x: 0, y: 0, scale: 1 };
+        if (this.screenEffects && typeof this.screenEffects.getTransform === 'function') {
+            transform = this.screenEffects.getTransform();
+        }
         this.ctx.save();
         this.ctx.translate(this.width / 2, this.height / 2);
         this.ctx.scale(transform.scale, transform.scale);
@@ -1326,7 +1531,9 @@ class WorkingManGame {
             this.drawMoneyBags();
             
             // Draw player trail
-            this.playerTrail.draw(this.ctx);
+            if (this.playerTrail && typeof this.playerTrail.draw === 'function') {
+                this.playerTrail.draw(this.ctx);
+            }
             
             // Draw oligarch
             this.drawOligarch();
@@ -1335,7 +1542,9 @@ class WorkingManGame {
             this.drawPlayer();
             
             // Draw particles
-            this.particles.draw(this.ctx);
+            if (this.particles && typeof this.particles.draw === 'function') {
+                this.particles.draw(this.ctx);
+            }
         }
         
         this.ctx.restore();
@@ -1347,11 +1556,688 @@ class WorkingManGame {
         this.drawGameState();
         
         // Draw screen effects
-        this.screenEffects.drawFlash();
-        this.screenEffects.drawRipple();
+        if (this.screenEffects) {
+            if (typeof this.screenEffects.drawFlash === 'function') {
+                this.screenEffects.drawFlash();
+            }
+            if (typeof this.screenEffects.drawRipple === 'function') {
+                this.screenEffects.drawRipple();
+            }
+        }
         
         // Draw CRT filter
-        this.crtFilter.draw(this.ctx);
+        if (this.crtFilter && typeof this.crtFilter.draw === 'function') {
+            this.crtFilter.draw(this.ctx);
+        }
+    }
+    
+    // PixiJS rendering methods
+    drawPlatformsPixi(layer) {
+        for (let platform of this.platforms) {
+            const platformGraphics = new PIXI.Graphics();
+            
+            // Main platform body with gradient effect (simulated)
+            platformGraphics.beginFill(0x8B4513, 1);
+            platformGraphics.drawRect(0, 0, platform.width, platform.height);
+            platformGraphics.endFill();
+            
+            // Darker bottom
+            platformGraphics.beginFill(0x654321, 1);
+            platformGraphics.drawRect(0, platform.height / 2, platform.width, platform.height / 2);
+            platformGraphics.endFill();
+            
+            // Border
+            platformGraphics.lineStyle(2, 0x654321, 1);
+            platformGraphics.drawRect(0, 0, platform.width, platform.height);
+            
+            // Top highlight
+            platformGraphics.lineStyle(1, 0xA0522D, 1);
+            platformGraphics.moveTo(0, 0);
+            platformGraphics.lineTo(platform.width, 0);
+            
+            platformGraphics.x = platform.x;
+            platformGraphics.y = platform.y;
+            layer.addChild(platformGraphics);
+        }
+    }
+    
+    drawLaddersPixi(layer) {
+        for (let ladder of this.ladders) {
+            const ladderGraphics = new PIXI.Graphics();
+            
+            // Ladder background with gradient effect
+            ladderGraphics.beginFill(0xC0C0C0, 1);
+            ladderGraphics.drawRect(0, 0, ladder.width, ladder.height);
+            ladderGraphics.endFill();
+            
+            // Darker right side
+            ladderGraphics.beginFill(0x808080, 1);
+            ladderGraphics.drawRect(ladder.width / 2, 0, ladder.width / 2, ladder.height);
+            ladderGraphics.endFill();
+            
+            // Draw ladder rungs
+            ladderGraphics.lineStyle(2, 0x606060, 1);
+            for (let i = 0; i < ladder.height; i += 20) {
+                ladderGraphics.moveTo(0, i);
+                ladderGraphics.lineTo(ladder.width, i);
+            }
+            
+            // Ladder sides
+            ladderGraphics.lineStyle(2, 0x505050, 1);
+            ladderGraphics.drawRect(0, 0, ladder.width, ladder.height);
+            
+            ladderGraphics.x = ladder.x;
+            ladderGraphics.y = ladder.y;
+            layer.addChild(ladderGraphics);
+        }
+    }
+    
+    drawMoneyBagsPixi(layer) {
+        for (let moneyBag of this.moneyBags) {
+            const bagContainer = new PIXI.Container();
+            bagContainer.x = moneyBag.x + moneyBag.width/2;
+            bagContainer.y = moneyBag.y + moneyBag.height/2;
+            bagContainer.rotation = moneyBag.rotation;
+            
+            const bagGraphics = new PIXI.Graphics();
+            
+            // Outer glow
+            bagGraphics.beginFill(0xFFD700, 0.3);
+            bagGraphics.drawRect(-moneyBag.width/2 - 2, -moneyBag.height/2 - 2, moneyBag.width + 4, moneyBag.height + 4);
+            bagGraphics.endFill();
+            
+            // Money bag
+            bagGraphics.beginFill(0xFFD700, 1);
+            bagGraphics.drawRect(-moneyBag.width/2, -moneyBag.height/2, moneyBag.width, moneyBag.height);
+            bagGraphics.endFill();
+            
+            // Border
+            bagGraphics.lineStyle(2, 0xB8860B, 1);
+            bagGraphics.drawRect(-moneyBag.width/2, -moneyBag.height/2, moneyBag.width, moneyBag.height);
+            
+            bagContainer.addChild(bagGraphics);
+            
+            // Dollar sign
+            const dollarText = new PIXI.Text('$', new PIXI.TextStyle({
+                fontFamily: 'Arial',
+                fontSize: 10,
+                fill: 0x000000,
+                fontWeight: 'bold',
+                align: 'center'
+            }));
+            dollarText.anchor.set(0.5);
+            bagContainer.addChild(dollarText);
+            
+            layer.addChild(bagContainer);
+        }
+    }
+    
+    drawPowerUpsPixi(layer) {
+        for (let powerUp of this.powerUps) {
+            const powerUpData = this.powerUpTypes[powerUp.type];
+            const floatY = powerUp.y + Math.sin(powerUp.floatOffset) * 3;
+            const colorHex = parseInt(powerUpData.color.replace('#', ''), 16);
+            
+            const powerUpContainer = new PIXI.Container();
+            powerUpContainer.x = powerUp.x + powerUp.width/2;
+            powerUpContainer.y = floatY + powerUp.height/2;
+            
+            const powerUpGraphics = new PIXI.Graphics();
+            
+            // Outer glow
+            powerUpGraphics.beginFill(colorHex, 0.2);
+            powerUpGraphics.drawRect(-powerUp.width/2 - 5, -powerUp.height/2 - 5, powerUp.width + 10, powerUp.height + 10);
+            powerUpGraphics.endFill();
+            
+            powerUpGraphics.beginFill(colorHex, 1);
+            
+            switch (powerUp.type) {
+                case 'SPEED_BOOST':
+                    // Lightning bolt
+                    powerUpGraphics.drawPolygon([
+                        powerUp.width/2, -powerUp.height/2 + 2,
+                        powerUp.width - 4, 0,
+                        powerUp.width/2, 0,
+                        -powerUp.width/2 + 4, powerUp.height/2 - 2,
+                        powerUp.width/2, 0,
+                        powerUp.width - 4, 0
+                    ]);
+                    break;
+                    
+                case 'INVINCIBILITY':
+                    // Star (5-pointed)
+                    const starPoints = [];
+                    for (let i = 0; i < 5; i++) {
+                        const angle = (i * Math.PI * 2 / 5) - Math.PI / 2;
+                        starPoints.push(
+                            Math.cos(angle) * (powerUp.width/2),
+                            Math.sin(angle) * (powerUp.height/2)
+                        );
+                    }
+                    powerUpGraphics.drawPolygon(starPoints);
+                    break;
+                    
+                case 'EXTRA_LIFE':
+                    // Heart shape (simplified as rounded rectangle with triangle top)
+                    powerUpGraphics.drawRoundedRect(-powerUp.width/3, 0, powerUp.width * 2/3, powerUp.height/2, 2);
+                    powerUpGraphics.drawPolygon([
+                        -powerUp.width/2, powerUp.height/2,
+                        0, -powerUp.height/3,
+                        powerUp.width/2, powerUp.height/2
+                    ]);
+                    break;
+                    
+                case 'SLOW_TIME':
+                    // Clock
+                    powerUpGraphics.drawCircle(0, 0, powerUp.width/2 - 2);
+                    powerUpGraphics.lineStyle(1, 0x000000, 1);
+                    powerUpGraphics.drawCircle(0, 0, powerUp.width/2 - 2);
+                    // Clock hands
+                    powerUpGraphics.lineStyle(2, 0x000000, 1);
+                    powerUpGraphics.moveTo(0, 0);
+                    powerUpGraphics.lineTo(0, -powerUp.height/2 + 4);
+                    powerUpGraphics.moveTo(0, 0);
+                    powerUpGraphics.lineTo(powerUp.width/2 - 4, 0);
+                    break;
+            }
+            
+            powerUpGraphics.endFill();
+            powerUpContainer.addChild(powerUpGraphics);
+            layer.addChild(powerUpContainer);
+        }
+    }
+    
+    drawRetirementGoalPixi(layer) {
+        this.retirementGoal.glowTimer += 0.1;
+        const glowIntensity = Math.sin(this.retirementGoal.glowTimer) * 0.3 + 0.7;
+        
+        const goalContainer = new PIXI.Container();
+        goalContainer.x = this.retirementGoal.x;
+        goalContainer.y = this.retirementGoal.y;
+        
+        // Glow effect
+        const glow = new PIXI.Graphics();
+        glow.beginFill(0x00ff00, glowIntensity * 0.3);
+        glow.drawRect(-10, -10, this.retirementGoal.width + 20, this.retirementGoal.height + 30);
+        glow.endFill();
+        goalContainer.addChild(glow);
+        
+        const house = new PIXI.Graphics();
+        
+        // House body
+        house.beginFill(0x8B4513, glowIntensity);
+        house.drawRect(0, 0, this.retirementGoal.width, this.retirementGoal.height);
+        house.endFill();
+        
+        // Roof
+        house.beginFill(0x8B0000, glowIntensity);
+        house.drawPolygon([
+            -10, 0,
+            this.retirementGoal.width/2, -20,
+            this.retirementGoal.width + 10, 0
+        ]);
+        house.endFill();
+        
+        // Door
+        house.beginFill(0x654321, glowIntensity);
+        house.drawRect(30, 5, 20, 15);
+        house.endFill();
+        
+        // Windows
+        house.beginFill(0x87CEEB, glowIntensity);
+        house.drawRect(10, 8, 12, 8);
+        house.drawRect(60, 8, 12, 8);
+        house.endFill();
+        
+        // Chimney
+        house.beginFill(0x696969, glowIntensity);
+        house.drawRect(70, -15, 8, 15);
+        house.endFill();
+        
+        // Smoke particles
+        for (let i = 0; i < 3; i++) {
+            const smokeY = -20 - (Math.sin(this.retirementGoal.glowTimer + i) * 5);
+            house.beginFill(0xC0C0C0, glowIntensity * 0.7);
+            house.drawCircle(74, smokeY, 2 + i);
+            house.endFill();
+        }
+        
+        // Border
+        house.lineStyle(2, 0x8B4513, 1);
+        house.drawRect(0, 0, this.retirementGoal.width, this.retirementGoal.height);
+        
+        goalContainer.addChild(house);
+        
+        // "RETIREMENT" text
+        const text = new PIXI.Text('RETIREMENT', new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 12,
+            fill: 0xffffff,
+            fontWeight: 'bold',
+            align: 'center'
+        }));
+        text.anchor.set(0.5);
+        text.x = this.retirementGoal.width/2;
+        text.y = -5;
+        goalContainer.addChild(text);
+        
+        layer.addChild(goalContainer);
+    }
+    
+    drawOligarchPixi(layer) {
+        const oligarchContainer = new PIXI.Container();
+        oligarchContainer.x = this.oligarch.x;
+        oligarchContainer.y = this.oligarch.y;
+        
+        const oligarchGraphics = new PIXI.Graphics();
+        
+        // Body
+        oligarchGraphics.beginFill(0x000080, 1);
+        oligarchGraphics.drawRect(0, 20, this.oligarch.width, this.oligarch.height - 20);
+        oligarchGraphics.endFill();
+        
+        // Head
+        oligarchGraphics.beginFill(0xFDBCB4, 1);
+        oligarchGraphics.drawRect(8, 0, this.oligarch.width - 16, 20);
+        oligarchGraphics.endFill();
+        
+        // Top hat
+        oligarchGraphics.beginFill(0x000000, 1);
+        oligarchGraphics.drawRect(4, -12, this.oligarch.width - 8, 12);
+        oligarchGraphics.drawRect(2, -4, this.oligarch.width - 4, 4);
+        oligarchGraphics.endFill();
+        
+        // Monocle
+        oligarchGraphics.lineStyle(3, 0xFFD700, 1);
+        oligarchGraphics.drawCircle(25, 8, 6);
+        oligarchGraphics.lineStyle(2, 0xFFD700, 1);
+        oligarchGraphics.moveTo(31, 8);
+        oligarchGraphics.lineTo(35, 6);
+        
+        // Face details
+        oligarchGraphics.beginFill(0x000000, 1);
+        oligarchGraphics.drawRect(20, 6, 2, 2);
+        oligarchGraphics.drawRect(28, 6, 2, 2);
+        oligarchGraphics.endFill();
+        
+        // Mustache
+        oligarchGraphics.beginFill(0x8B4513, 1);
+        oligarchGraphics.drawRect(15, 12, 10, 2);
+        oligarchGraphics.endFill();
+        
+        // Arms
+        oligarchGraphics.beginFill(0xFDBCB4, 1);
+        oligarchGraphics.drawRect(-4, 24, 8, 16);
+        oligarchGraphics.drawRect(this.oligarch.width - 4, 24, 8, 16);
+        oligarchGraphics.endFill();
+        
+        // Legs
+        oligarchGraphics.beginFill(0x000080, 1);
+        oligarchGraphics.drawRect(8, 36, 8, 12);
+        oligarchGraphics.drawRect(24, 36, 8, 12);
+        oligarchGraphics.endFill();
+        
+        // Shoes
+        oligarchGraphics.beginFill(0x000000, 1);
+        oligarchGraphics.drawRect(6, 46, 12, 4);
+        oligarchGraphics.drawRect(22, 46, 12, 4);
+        oligarchGraphics.endFill();
+        
+        // Cane
+        oligarchGraphics.lineStyle(3, 0x8B4513, 1);
+        oligarchGraphics.moveTo(-8, 20);
+        oligarchGraphics.lineTo(-8, 40);
+        
+        // Cane handle
+        oligarchGraphics.beginFill(0xFFD700, 1);
+        oligarchGraphics.drawCircle(-8, 20, 3);
+        oligarchGraphics.endFill();
+        
+        oligarchContainer.addChild(oligarchGraphics);
+        layer.addChild(oligarchContainer);
+    }
+    
+    drawPlayerTrailPixi(layer) {
+        // Simple trail implementation with fading circles
+        if (this.playerTrailSprites.length > 10) {
+            const oldTrail = this.playerTrailSprites.shift();
+            if (oldTrail && oldTrail.parent) {
+                oldTrail.parent.removeChild(oldTrail);
+            }
+        }
+        
+        const trailPoint = new PIXI.Graphics();
+        trailPoint.beginFill(0x4169E1, 0.5);
+        trailPoint.drawCircle(0, 0, 4);
+        trailPoint.endFill();
+        trailPoint.x = this.player.x + this.player.width/2;
+        trailPoint.y = this.player.y + this.player.height/2;
+        trailPoint.alpha = 0.3;
+        layer.addChild(trailPoint);
+        this.playerTrailSprites.push(trailPoint);
+        
+        // Fade existing trails
+        this.playerTrailSprites.forEach((trail, index) => {
+            trail.alpha = 0.3 * (1 - index / this.playerTrailSprites.length);
+        });
+    }
+    
+    drawPlayerPixi(layer) {
+        const invincibleFlash = this.player.invincible && Math.floor(this.player.invincibleTimer / 5) % 2;
+        
+        if (invincibleFlash) {
+            return; // Don't draw when flashing
+        }
+        
+        // Draw trail first
+        this.drawPlayerTrailPixi(layer);
+        
+        const playerContainer = new PIXI.Container();
+        playerContainer.x = this.player.x;
+        playerContainer.y = this.player.y;
+        
+        const playerGraphics = new PIXI.Graphics();
+        
+        // Body
+        playerGraphics.beginFill(0x4169E1, 1);
+        playerGraphics.drawRect(0, 16, this.player.width, this.player.height - 16);
+        playerGraphics.endFill();
+        
+        // Head
+        playerGraphics.beginFill(0xFDBCB4, 1);
+        playerGraphics.drawRect(4, 0, this.player.width - 8, 16);
+        playerGraphics.endFill();
+        
+        // Hard hat
+        playerGraphics.beginFill(0xFFD700, 1);
+        playerGraphics.drawRect(2, -4, this.player.width - 4, 8);
+        playerGraphics.endFill();
+        
+        // Face details
+        playerGraphics.beginFill(0x000000, 1);
+        playerGraphics.drawRect(6, 4, 2, 2);
+        playerGraphics.drawRect(12, 4, 2, 2);
+        playerGraphics.endFill();
+        
+        // Mustache
+        playerGraphics.beginFill(0x8B4513, 1);
+        playerGraphics.drawRect(7, 8, 6, 2);
+        playerGraphics.endFill();
+        
+        // Arms (animation)
+        playerGraphics.beginFill(0xFDBCB4, 1);
+        if (this.player.animFrame % 2 === 0) {
+            playerGraphics.drawRect(-4, 20, 8, 12);
+            playerGraphics.drawRect(this.player.width - 4, 20, 8, 12);
+        } else {
+            playerGraphics.drawRect(-2, 18, 8, 12);
+            playerGraphics.drawRect(this.player.width - 6, 22, 8, 12);
+        }
+        playerGraphics.endFill();
+        
+        // Legs (walking animation)
+        playerGraphics.beginFill(0x4169E1, 1);
+        if (this.player.vx !== 0 || this.player.climbing) {
+            if (this.player.animFrame % 2 === 0) {
+                playerGraphics.drawRect(4, this.player.height - 8, 6, 8);
+                playerGraphics.drawRect(14, this.player.height - 12, 6, 12);
+            } else {
+                playerGraphics.drawRect(4, this.player.height - 12, 6, 12);
+                playerGraphics.drawRect(14, this.player.height - 8, 6, 8);
+            }
+        } else {
+            playerGraphics.drawRect(4, this.player.height - 8, 6, 8);
+            playerGraphics.drawRect(14, this.player.height - 8, 6, 8);
+        }
+        playerGraphics.endFill();
+        
+        // Power-up indicators
+        if (this.activePowerUps.speed) {
+            playerGraphics.lineStyle(2, 0x00ff00, 0.8);
+            playerGraphics.drawRect(0, 0, this.player.width, this.player.height);
+        }
+        if (this.activePowerUps.invincible) {
+            playerGraphics.lineStyle(2, 0xffff00, 0.8);
+            playerGraphics.drawCircle(this.player.width/2, this.player.height/2, this.player.width/2 + 2);
+        }
+        
+        playerContainer.addChild(playerGraphics);
+        layer.addChild(playerContainer);
+    }
+    
+    drawUIPixi(layer) {
+        const panel = new PIXI.Graphics();
+        panel.beginFill(0x000000, 0.7);
+        panel.drawRect(10, 10, 200, 100);
+        panel.endFill();
+        layer.addChild(panel);
+        
+        const textStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0xffffff
+        });
+        
+        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, textStyle);
+        scoreText.x = 20;
+        scoreText.y = 20;
+        layer.addChild(scoreText);
+        
+        const livesText = new PIXI.Text(`Lives: ${this.lives}`, textStyle);
+        livesText.x = 20;
+        livesText.y = 40;
+        layer.addChild(livesText);
+        
+        const levelText = new PIXI.Text(`Level: ${this.level}`, textStyle);
+        levelText.x = 20;
+        levelText.y = 60;
+        layer.addChild(levelText);
+        
+        // Power-up indicators
+        let powerUpY = 80;
+        if (this.activePowerUps.speed) {
+            const speedText = new PIXI.Text('SPEED', new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 12,
+                fill: 0x00ff00
+            }));
+            speedText.x = 20;
+            speedText.y = powerUpY;
+            layer.addChild(speedText);
+            powerUpY += 15;
+        }
+        if (this.activePowerUps.invincible) {
+            const invText = new PIXI.Text('INVINCIBLE', new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 12,
+                fill: 0xffff00
+            }));
+            invText.x = 20;
+            invText.y = powerUpY;
+            layer.addChild(invText);
+        }
+    }
+    
+    drawGameStatePixi(layer) {
+        if (this.gameState === 'menu') {
+            const menuBg = new PIXI.Graphics();
+            menuBg.beginFill(0x1a1a2e, 0.9);
+            menuBg.drawRect(0, 0, this.width, this.height);
+            menuBg.endFill();
+            layer.addChild(menuBg);
+            
+            const titleStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 36,
+                fill: 0x00ffff,
+                fontWeight: 'bold',
+                align: 'center'
+            });
+            const title = new PIXI.Text('WORKING MAN', titleStyle);
+            title.anchor.set(0.5);
+            title.x = this.width / 2;
+            title.y = this.height / 2 - 80;
+            layer.addChild(title);
+            
+            const instructionStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 16,
+                fill: 0xffffff,
+                align: 'center'
+            });
+            const instructions = [
+                'Reach retirement at the top!',
+                'Arrow Keys: Move & Climb',
+                'Space: Jump',
+                'Collect money bags for points',
+                'Press SPACE to start'
+            ];
+            instructions.forEach((text, i) => {
+                const instruction = new PIXI.Text(text, instructionStyle);
+                instruction.anchor.set(0.5);
+                instruction.x = this.width / 2;
+                instruction.y = this.height / 2 - 40 + (i * 25);
+                layer.addChild(instruction);
+            });
+        } else if (this.gameState === 'paused') {
+            const overlay = new PIXI.Graphics();
+            overlay.beginFill(0x000000, 0.8);
+            overlay.drawRect(0, 0, this.width, this.height);
+            overlay.endFill();
+            layer.addChild(overlay);
+            
+            const pauseStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 24,
+                fill: 0xffff00,
+                align: 'center'
+            });
+            const pauseText = new PIXI.Text('PAUSED', pauseStyle);
+            pauseText.anchor.set(0.5);
+            pauseText.x = this.width / 2;
+            pauseText.y = this.height / 2;
+            layer.addChild(pauseText);
+            
+            const resumeText = new PIXI.Text('Press P to resume', new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 16,
+                fill: 0xffffff,
+                align: 'center'
+            }));
+            resumeText.anchor.set(0.5);
+            resumeText.x = this.width / 2;
+            resumeText.y = this.height / 2 + 30;
+            layer.addChild(resumeText);
+        } else if (this.gameState === 'gameOver') {
+            const overlay = new PIXI.Graphics();
+            overlay.beginFill(0x000000, 0.8);
+            overlay.drawRect(0, 0, this.width, this.height);
+            overlay.endFill();
+            layer.addChild(overlay);
+            
+            const gameOverStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 24,
+                fill: 0xff0000,
+                align: 'center'
+            });
+            const gameOverText = new PIXI.Text('GAME OVER', gameOverStyle);
+            gameOverText.anchor.set(0.5);
+            gameOverText.x = this.width / 2;
+            gameOverText.y = this.height / 2 - 30;
+            layer.addChild(gameOverText);
+            
+            const infoStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 16,
+                fill: 0xffffff,
+                align: 'center'
+            });
+            const scoreText = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, infoStyle);
+            scoreText.anchor.set(0.5);
+            scoreText.x = this.width / 2;
+            scoreText.y = this.height / 2;
+            layer.addChild(scoreText);
+            
+            const levelText = new PIXI.Text(`Reached Level: ${this.level}`, infoStyle);
+            levelText.anchor.set(0.5);
+            levelText.x = this.width / 2;
+            levelText.y = this.height / 2 + 30;
+            layer.addChild(levelText);
+            
+            const restartText = new PIXI.Text('Press SPACE to restart', infoStyle);
+            restartText.anchor.set(0.5);
+            restartText.x = this.width / 2;
+            restartText.y = this.height / 2 + 60;
+            layer.addChild(restartText);
+        } else if (this.gameState === 'complete') {
+            const overlay = new PIXI.Graphics();
+            overlay.beginFill(0x000000, 0.8);
+            overlay.drawRect(0, 0, this.width, this.height);
+            overlay.endFill();
+            layer.addChild(overlay);
+            
+            const completeStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 28,
+                fill: 0xffd700,
+                align: 'center'
+            });
+            const completeText = new PIXI.Text('CONGRATULATIONS!', completeStyle);
+            completeText.anchor.set(0.5);
+            completeText.x = this.width / 2;
+            completeText.y = this.height / 2 - 40;
+            layer.addChild(completeText);
+            
+            const infoStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 20,
+                fill: 0xffffff,
+                align: 'center'
+            });
+            const messageText = new PIXI.Text('You reached retirement!', infoStyle);
+            messageText.anchor.set(0.5);
+            messageText.x = this.width / 2;
+            messageText.y = this.height / 2 - 10;
+            layer.addChild(messageText);
+            
+            const scoreText = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, infoStyle);
+            scoreText.anchor.set(0.5);
+            scoreText.x = this.width / 2;
+            scoreText.y = this.height / 2 + 25;
+            layer.addChild(scoreText);
+            
+            const restartText = new PIXI.Text('Press SPACE to play again', infoStyle);
+            restartText.anchor.set(0.5);
+            restartText.x = this.width / 2;
+            restartText.y = this.height / 2 + 55;
+            layer.addChild(restartText);
+        }
+    }
+    
+    updatePlatformSprites() {
+        if (this.isPreview) return;
+        // Platform sprites are recreated each frame in drawPlatformsPixi
+    }
+    
+    updateLadderSprites() {
+        if (this.isPreview) return;
+        // Ladder sprites are recreated each frame in drawLaddersPixi
+    }
+    
+    updateMoneyBagSprites() {
+        if (this.isPreview) return;
+        // Money bag sprites are recreated each frame in drawMoneyBagsPixi
+    }
+    
+    updatePowerUpSprites() {
+        if (this.isPreview) return;
+        // Power-up sprites are recreated each frame in drawPowerUpsPixi
+    }
+    
+    updateRetirementGoalSprite() {
+        if (this.isPreview) return;
+        // Retirement goal sprite is recreated each frame in drawRetirementGoalPixi
     }
     
     drawPlatforms() {
@@ -1834,6 +2720,33 @@ class WorkingManGame {
             this.ctx.fillText('You reached retirement!', this.width / 2, this.height / 2 - 10);
             this.ctx.fillText(`Final Score: ${Utils.formatScore(this.score)}`, this.width / 2, this.height / 2 + 25);
             this.ctx.fillText('Press SPACE to play again', this.width / 2, this.height / 2 + 55);
+        }
+    }
+    
+    cleanup() {
+        // Remove ticker if using PixiJS
+        if (!this.isPreview && this.graphics) {
+            const ticker = this.graphics.getTicker();
+            if (ticker && this.tickerCallback) {
+                ticker.remove(this.tickerCallback);
+            }
+            
+            // Clean up PixiJS app
+            if (this.graphics.app) {
+                this.graphics.app.destroy(true, { children: true, texture: true, baseTexture: true });
+            }
+        }
+        
+        // Clean up sprites
+        if (!this.isPreview) {
+            this.platformSprites = [];
+            this.ladderSprites = [];
+            this.playerSprite = null;
+            this.oligarchSprite = null;
+            this.moneyBagSprites = [];
+            this.powerUpSprites = [];
+            this.retirementGoalSprite = null;
+            this.playerTrailSprites = [];
         }
     }
 }

@@ -196,12 +196,7 @@ class BreakoutGame {
             this.paddle.color = '#' + paddleColor.toString(16).padStart(6, '0');
             // Update paddle sprite color
             if (this.paddleSprite) {
-                this.paddleSprite.clear();
-                this.paddleSprite.beginFill(paddleColor);
-                this.paddleSprite.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
-                this.paddleSprite.endFill();
-                this.paddleSprite.lineStyle(2, this.lightenColor(paddleColor, 0.4), 0.8);
-                this.paddleSprite.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
+                this.redrawPaddleSprite();
             }
         }
         
@@ -311,32 +306,21 @@ class BreakoutGame {
         }
         this.brickSprites = [];
         
-        // Create new brick sprites with enhanced graphics
+        // Get current theme name for theme-specific brick styles
+        const themeName = this.currentTheme ? this.getThemeName() : null;
+        
+        // Create new brick sprites with theme-specific enhanced graphics
         for (let brick of this.bricks) {
             // Use colorInt if available, otherwise parse from string
             const brickColor = brick.colorInt || parseInt(brick.color.replace('#', ''), 16);
             
-            // Create enhanced brick sprite with border/glow effect
-            const brickContainer = new PIXI.Container();
+            // Create theme-specific brick sprite
+            const brickContainer = this.createThemedBrick(brick, brickColor, themeName);
             
-            // Main brick
-            const mainRect = this.spriteManager.createRect(brick.width, brick.height, brickColor);
-            
-            // Add border/glow for visual enhancement
-            const border = new PIXI.Graphics();
-            border.lineStyle(2, this.lightenColor(brickColor, 0.3), 0.8);
-            border.drawRect(0, 0, brick.width, brick.height);
-            border.endFill();
-            
-            // Add inner highlight
-            const highlight = new PIXI.Graphics();
-            highlight.beginFill(this.lightenColor(brickColor, 0.2), 0.5);
-            highlight.drawRect(2, 2, brick.width - 4, 5);
-            highlight.endFill();
-            
-            brickContainer.addChild(mainRect);
-            brickContainer.addChild(border);
-            brickContainer.addChild(highlight);
+            // Add power-up indicator if this brick has a power-up
+            if (brick.hasPowerUp) {
+                this.addPowerUpIndicator(brickContainer, brick.width, brick.height);
+            }
             
             brickContainer.x = brick.x;
             brickContainer.y = brick.y;
@@ -347,12 +331,267 @@ class BreakoutGame {
         }
     }
     
+    getThemeName() {
+        if (!this.currentTheme) return null;
+        // Get theme name from themeManager
+        const themeKeys = Object.keys(this.themeManager.themes);
+        for (let key of themeKeys) {
+            if (this.themeManager.themes[key] === this.currentTheme) {
+                return key;
+            }
+        }
+        return null;
+    }
+    
+    createThemedBrick(brick, brickColor, themeName) {
+        const brickContainer = new PIXI.Container();
+        const w = brick.width;
+        const h = brick.height;
+        
+        switch (themeName) {
+            case 'space':
+                // Space theme: rounded corners with glow
+                const spaceBrick = new PIXI.Graphics();
+                // Outer glow
+                spaceBrick.beginFill(brickColor, 0.3);
+                spaceBrick.drawRoundedRect(-2, -2, w + 4, h + 4, 4);
+                spaceBrick.endFill();
+                // Main brick
+                spaceBrick.beginFill(brickColor);
+                spaceBrick.drawRoundedRect(0, 0, w, h, 3);
+                spaceBrick.endFill();
+                // Highlight
+                spaceBrick.beginFill(this.lightenColor(brickColor, 0.4), 0.6);
+                spaceBrick.drawRoundedRect(2, 2, w - 4, h / 3, 2);
+                spaceBrick.endFill();
+                // Border
+                spaceBrick.lineStyle(1, this.lightenColor(brickColor, 0.5), 0.8);
+                spaceBrick.drawRoundedRect(0, 0, w, h, 3);
+                brickContainer.addChild(spaceBrick);
+                break;
+                
+            case 'underwater':
+                // Underwater theme: wavy top edge, bubble-like
+                const waterBrick = new PIXI.Graphics();
+                waterBrick.beginFill(brickColor);
+                // Wavy top
+                waterBrick.moveTo(0, h * 0.3);
+                for (let x = 0; x <= w; x += 5) {
+                    const waveY = h * 0.3 + Math.sin(x * 0.3) * 2;
+                    waterBrick.lineTo(x, waveY);
+                }
+                waterBrick.lineTo(w, 0);
+                waterBrick.lineTo(0, 0);
+                waterBrick.closePath();
+                waterBrick.endFill();
+                // Rest of brick
+                waterBrick.beginFill(brickColor);
+                waterBrick.drawRect(0, h * 0.3, w, h * 0.7);
+                waterBrick.endFill();
+                // Small bubbles
+                for (let i = 0; i < 2; i++) {
+                    const bx = (i + 1) * w / 3;
+                    const by = h / 2 + Math.sin(bx) * 3;
+                    waterBrick.beginFill(0xffffff, 0.4);
+                    waterBrick.drawCircle(bx, by, 2);
+                    waterBrick.endFill();
+                }
+                // Border
+                waterBrick.lineStyle(1, this.lightenColor(brickColor, 0.3), 0.6);
+                waterBrick.drawRect(0, 0, w, h);
+                brickContainer.addChild(waterBrick);
+                break;
+                
+            case 'jungle':
+                // Jungle theme: leaf-like pattern with texture
+                const jungleBrick = new PIXI.Graphics();
+                jungleBrick.beginFill(brickColor);
+                jungleBrick.drawRoundedRect(0, 0, w, h, 2);
+                jungleBrick.endFill();
+                // Leaf veins
+                jungleBrick.lineStyle(1, this.darkenColor(brickColor, 0.2), 0.6);
+                jungleBrick.moveTo(w / 2, 0);
+                jungleBrick.lineTo(w / 2, h);
+                jungleBrick.moveTo(w / 4, h / 2);
+                jungleBrick.lineTo(w * 0.75, h / 2);
+                // Texture dots
+                for (let i = 0; i < 4; i++) {
+                    const dx = (i % 2) * w * 0.6 + w * 0.2;
+                    const dy = Math.floor(i / 2) * h * 0.6 + h * 0.2;
+                    jungleBrick.beginFill(this.darkenColor(brickColor, 0.1), 0.5);
+                    jungleBrick.drawCircle(dx, dy, 1.5);
+                    jungleBrick.endFill();
+                }
+                // Highlight
+                jungleBrick.beginFill(this.lightenColor(brickColor, 0.3), 0.4);
+                jungleBrick.drawRoundedRect(1, 1, w - 2, 4, 1);
+                jungleBrick.endFill();
+                brickContainer.addChild(jungleBrick);
+                break;
+                
+            case 'volcano':
+                // Volcano theme: jagged edges with inner glow
+                const volcanoBrick = new PIXI.Graphics();
+                // Inner glow (lava)
+                volcanoBrick.beginFill(this.lightenColor(brickColor, 0.5), 0.8);
+                volcanoBrick.drawRect(2, 2, w - 4, h - 4);
+                volcanoBrick.endFill();
+                // Main brick
+                volcanoBrick.beginFill(brickColor);
+                // Jagged top edge
+                volcanoBrick.moveTo(0, h);
+                volcanoBrick.lineTo(0, Math.random() * 3);
+                for (let x = 2; x < w - 2; x += 4) {
+                    const jitter = (Math.random() - 0.5) * 3;
+                    volcanoBrick.lineTo(x, jitter);
+                }
+                volcanoBrick.lineTo(w, Math.random() * 3);
+                volcanoBrick.lineTo(w, h);
+                volcanoBrick.closePath();
+                volcanoBrick.endFill();
+                // Hot spots
+                for (let i = 0; i < 3; i++) {
+                    const hx = Math.random() * w;
+                    const hy = Math.random() * h;
+                    volcanoBrick.beginFill(0xffff00, 0.6);
+                    volcanoBrick.drawCircle(hx, hy, 2);
+                    volcanoBrick.endFill();
+                }
+                // Border
+                volcanoBrick.lineStyle(1, this.lightenColor(brickColor, 0.4), 0.9);
+                volcanoBrick.drawRect(0, 0, w, h);
+                brickContainer.addChild(volcanoBrick);
+                break;
+                
+            case 'neon':
+                // Neon theme: sharp edges with strong glow
+                const neonBrick = new PIXI.Graphics();
+                // Outer glow layers
+                neonBrick.beginFill(brickColor, 0.4);
+                neonBrick.drawRect(-3, -3, w + 6, h + 6);
+                neonBrick.endFill();
+                neonBrick.beginFill(brickColor, 0.6);
+                neonBrick.drawRect(-1, -1, w + 2, h + 2);
+                neonBrick.endFill();
+                // Main brick
+                neonBrick.beginFill(brickColor);
+                neonBrick.drawRect(0, 0, w, h);
+                neonBrick.endFill();
+                // Inner highlight
+                neonBrick.beginFill(this.lightenColor(brickColor, 0.6), 0.8);
+                neonBrick.drawRect(1, 1, w - 2, 3);
+                neonBrick.endFill();
+                // Corner accents
+                neonBrick.lineStyle(2, this.lightenColor(brickColor, 0.8), 1);
+                neonBrick.moveTo(0, 0);
+                neonBrick.lineTo(6, 0);
+                neonBrick.lineTo(0, 6);
+                neonBrick.moveTo(w, 0);
+                neonBrick.lineTo(w - 6, 0);
+                neonBrick.lineTo(w, 6);
+                brickContainer.addChild(neonBrick);
+                break;
+                
+            case 'desert':
+                // Desert theme: rounded with sand texture
+                const desertBrick = new PIXI.Graphics();
+                desertBrick.beginFill(brickColor);
+                desertBrick.drawRoundedRect(0, 0, w, h, 4);
+                desertBrick.endFill();
+                // Sand texture (small dots)
+                for (let i = 0; i < 8; i++) {
+                    const sx = Math.random() * w;
+                    const sy = Math.random() * h;
+                    const grainColor = Math.random() > 0.5 ? this.lightenColor(brickColor, 0.2) : this.darkenColor(brickColor, 0.1);
+                    desertBrick.beginFill(grainColor, 0.5);
+                    desertBrick.drawCircle(sx, sy, 1);
+                    desertBrick.endFill();
+                }
+                // Highlight
+                desertBrick.beginFill(this.lightenColor(brickColor, 0.3), 0.5);
+                desertBrick.drawRoundedRect(1, 1, w - 2, 4, 2);
+                desertBrick.endFill();
+                // Border
+                desertBrick.lineStyle(1, this.lightenColor(brickColor, 0.2), 0.7);
+                desertBrick.drawRoundedRect(0, 0, w, h, 4);
+                brickContainer.addChild(desertBrick);
+                break;
+                
+            default:
+                // Default: enhanced rectangle with border/glow
+                const mainRect = this.spriteManager.createRect(w, h, brickColor);
+                const border = new PIXI.Graphics();
+                border.lineStyle(2, this.lightenColor(brickColor, 0.3), 0.8);
+                border.drawRect(0, 0, w, h);
+                border.endFill();
+                const highlight = new PIXI.Graphics();
+                highlight.beginFill(this.lightenColor(brickColor, 0.2), 0.5);
+                highlight.drawRect(2, 2, w - 4, 5);
+                highlight.endFill();
+                brickContainer.addChild(mainRect);
+                brickContainer.addChild(border);
+                brickContainer.addChild(highlight);
+                break;
+        }
+        
+        return brickContainer;
+    }
+    
     lightenColor(color, amount) {
         // Lighten a color by amount (0-1)
         const r = Math.min(255, ((color >> 16) & 0xFF) + (255 * amount));
         const g = Math.min(255, ((color >> 8) & 0xFF) + (255 * amount));
         const b = Math.min(255, (color & 0xFF) + (255 * amount));
         return (r << 16) | (g << 8) | b;
+    }
+    
+    darkenColor(color, amount) {
+        // Darken a color by amount (0-1)
+        const r = Math.max(0, ((color >> 16) & 0xFF) * (1 - amount));
+        const g = Math.max(0, ((color >> 8) & 0xFF) * (1 - amount));
+        const b = Math.max(0, (color & 0xFF) * (1 - amount));
+        return (r << 16) | (g << 8) | b;
+    }
+    
+    addPowerUpIndicator(brickContainer, width, height) {
+        // Add a pulsing glow effect to indicate power-up brick
+        const indicator = new PIXI.Graphics();
+        
+        // Outer pulsing glow (will animate)
+        indicator.beginFill(0xffff00, 0.6);
+        indicator.drawRoundedRect(-3, -3, width + 6, height + 6, 4);
+        indicator.endFill();
+        
+        // Star icon in center
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const starSize = 6;
+        
+        indicator.lineStyle(2, 0xffff00, 1);
+        // Draw a star shape
+        for (let i = 0; i < 8; i++) {
+            const angle = (i * Math.PI) / 4;
+            const radius = i % 2 === 0 ? starSize : starSize / 2;
+            const x = centerX + Math.cos(angle) * radius;
+            const y = centerY + Math.sin(angle) * radius;
+            if (i === 0) {
+                indicator.moveTo(x, y);
+            } else {
+                indicator.lineTo(x, y);
+            }
+        }
+        indicator.closePath();
+        
+        // Add animation data for pulsing effect
+        indicator.userData = {
+            pulsePhase: Math.random() * Math.PI * 2,
+            pulseSpeed: 0.1
+        };
+        
+        brickContainer.addChildAt(indicator, 0); // Add at bottom so it's behind the brick
+        
+        // Store reference for animation
+        brickContainer.powerUpIndicator = indicator;
     }
     
     // Initialize brick break animations array
@@ -656,6 +895,7 @@ class BreakoutGame {
         this.ballTrails.forEach(trail => trail.clear());
         this.ballTrails = [];
         
+        // Now reset ball and start moving
         this.resetBall();
         this.gameState = 'playing';
     }
@@ -684,7 +924,9 @@ class BreakoutGame {
         }
         
         if (this.gameState !== 'playing') {
-            return; // Don't update game logic if not playing
+            // Still update animations even when paused/waiting
+            // But don't update game logic (ball, paddle, collisions)
+            return;
         }
         
         // Update paddle
@@ -832,8 +1074,8 @@ class BreakoutGame {
                         brick.sprite.visible = false;
                     }
                 
-                // Chance to drop power-up (20% chance)
-                if (Math.random() < 0.2) {
+                // Drop power-up if this brick was marked to have one
+                if (brick.hasPowerUp) {
                     this.dropPowerUp(brick.x + brick.width / 2, brick.y + brick.height / 2);
                 }
                 
@@ -996,8 +1238,8 @@ class BreakoutGame {
                         }
                     }
                     
-                    // Chance to drop power-up
-                    if (Math.random() < 0.2) {
+                    // Drop power-up if this brick was marked to have one
+                    if (brick.hasPowerUp) {
                         this.dropPowerUp(brick.x + brick.width / 2, brick.y + brick.height / 2);
                     }
                     
@@ -1084,9 +1326,14 @@ class BreakoutGame {
                 console.log('Game over triggered!');
                 this.gameOver();
             } else {
-                // Wait for next turn
+                // Wait for next turn - don't reset ball yet, wait for space press
                 this.waitingForNextTurn = true;
-                this.resetBall();
+                this.gameState = 'waiting'; // Pause game until space is pressed
+                // Reset ball position but don't set velocity yet
+                this.ball.x = this.width / 2;
+                this.ball.y = this.height / 2;
+                this.ball.vx = 0;
+                this.ball.vy = 0;
             }
         }
         
@@ -1124,15 +1371,41 @@ class BreakoutGame {
         }
     }
     
+    // Redraw paddle sprite when width changes
+    redrawPaddleSprite() {
+        if (this.isPreview || !this.paddleSprite) return;
+        
+        const paddleColor = parseInt(this.paddle.color.replace('#', ''), 16);
+        this.paddleSprite.clear();
+        
+        // Main paddle
+        this.paddleSprite.beginFill(paddleColor);
+        this.paddleSprite.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
+        this.paddleSprite.endFill();
+        
+        // Add glow effect
+        this.paddleSprite.lineStyle(2, this.lightenColor(paddleColor, 0.4), 0.8);
+        this.paddleSprite.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
+    }
+    
     // Update PixiJS sprite positions
     updateSpritePositions() {
         if (this.isPreview) return;
         
-        // Update paddle sprite
+        // Update paddle sprite - redraw if width changed
         if (this.paddleSprite) {
+            // Store old width to detect changes
+            if (!this.paddleSprite._lastWidth) {
+                this.paddleSprite._lastWidth = this.paddle.width;
+            }
+            
+            if (Math.abs(this.paddleSprite._lastWidth - this.paddle.width) > 0.1) {
+                this.redrawPaddleSprite();
+                this.paddleSprite._lastWidth = this.paddle.width;
+            }
+            
             this.paddleSprite.x = this.paddle.x;
             this.paddleSprite.y = this.paddle.y;
-            this.paddleSprite.width = this.paddle.width;
         }
         
         // Update ball sprite
@@ -1141,11 +1414,23 @@ class BreakoutGame {
             this.ballSprite.y = this.ball.y - this.ball.radius;
         }
         
-        // Update brick visibility
+        // Update brick visibility and power-up indicators
         for (let i = 0; i < this.bricks.length; i++) {
             const brick = this.bricks[i];
             if (brick.sprite) {
                 brick.sprite.visible = !brick.destroyed;
+                
+                // Animate power-up indicator (pulsing glow)
+                if (brick.sprite.powerUpIndicator && !brick.destroyed) {
+                    const indicator = brick.sprite.powerUpIndicator;
+                    if (indicator.userData) {
+                        indicator.userData.pulsePhase += indicator.userData.pulseSpeed;
+                        const pulseAmount = (Math.sin(indicator.userData.pulsePhase) + 1) / 2; // 0 to 1
+                        indicator.alpha = 0.4 + pulseAmount * 0.4; // Pulse between 0.4 and 0.8
+                        indicator.scale.x = 1 + pulseAmount * 0.1; // Slight scale pulse
+                        indicator.scale.y = 1 + pulseAmount * 0.1;
+                    }
+                }
             }
         }
         
@@ -1570,14 +1855,31 @@ class BreakoutGame {
             brickColors = [0xff0000, 0xff8800, 0xffff00, 0x00ff00, 0x0088ff, 0x8800ff];
         }
         
+        // Pre-determine which bricks will drop power-ups (about 20% of bricks)
+        const totalBricks = rows * cols;
+        const powerUpBrickCount = Math.max(1, Math.floor(totalBricks * 0.2));
+        const powerUpBrickIndices = new Set();
+        
+        // Randomly select bricks that will drop power-ups
+        while (powerUpBrickIndices.size < powerUpBrickCount) {
+            const randomIndex = Math.floor(Math.random() * totalBricks);
+            powerUpBrickIndices.add(randomIndex);
+        }
+        
+        let brickIndex = 0;
+        // Start bricks below the stats panel at top (panel is 50px + 10px margin + 10px padding = 70px)
+        const startY = 70;
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
                 const x = startX + col * (brickWidth + brickPadding);
-                const y = 50 + row * (brickHeight + brickPadding);
+                const y = startY + row * (brickHeight + brickPadding);
                 
                 // Use theme colors
                 const colorInt = brickColors[row % brickColors.length];
                 const color = '#' + colorInt.toString(16).padStart(6, '0');
+                
+                // Check if this brick will drop a power-up
+                const hasPowerUp = powerUpBrickIndices.has(brickIndex);
                 
                 this.bricks.push({
                     x: x,
@@ -1587,8 +1889,11 @@ class BreakoutGame {
                     color: color,
                     colorInt: colorInt, // Store integer version for PixiJS
                     destroyed: false,
+                    hasPowerUp: hasPowerUp, // Mark bricks that will drop power-ups
                     sprite: null  // Will be set by updateBrickSprites()
                 });
+                
+                brickIndex++;
             }
         }
         
@@ -1664,9 +1969,18 @@ class BreakoutGame {
                 // Animate paddle size change
                 const tween = new Tween(this.paddle, 300, Easing.easeOutBounce);
                 tween.from({ width: oldWidth });
-                tween.to({ width: 150 });
+                tween.to({ width: 180 }); // Increased from 150 to 180 for more noticeable effect
                 tween.onUpdate = (progress, eased) => {
                     this.paddle.x = centerX - this.paddle.width / 2;
+                    // Ensure paddle stays within bounds
+                    if (this.paddle.x < 0) this.paddle.x = 0;
+                    if (this.paddle.x + this.paddle.width > this.width) {
+                        this.paddle.x = this.width - this.paddle.width;
+                    }
+                    // Redraw paddle sprite when width changes
+                    if (!this.isPreview && this.paddleSprite) {
+                        this.redrawPaddleSprite();
+                    }
                 };
                 this.tweenManager.add(tween);
                 break;
@@ -1963,9 +2277,15 @@ class BreakoutGame {
     drawBackgroundPixi() {
         if (this.isPreview || !this.graphics) return;
         
-        // Theme system handles backgrounds - don't draw old pattern background
+        // Theme system handles backgrounds - ensure theme background is created
         // Themes are applied via themeManager.applyTheme() which creates the background
-        return;
+        // This function ensures backgrounds are refreshed when needed
+        if (this.themeManager && this.currentTheme) {
+            // Background is already created by applyTheme(), but we can ensure it's displayed
+            // The ThemeManager's createBackground() adds it to the background layer
+            // So we just need to make sure applyTheme was called
+            return;
+        }
         
         const pattern = this.backgroundPattern;
         const graphics = new PIXI.Graphics();
@@ -2004,41 +2324,43 @@ class BreakoutGame {
         const uiLayer = this.graphics.getLayer('ui');
         uiLayer.removeChildren();
         
-        // Create text sprites for UI - positioned OUTSIDE play area (above)
+        // Create text sprites for UI - positioned OUTSIDE play area (bottom of screen)
         const style = new PIXI.TextStyle({
             fontFamily: 'Courier New',
-            fontSize: 24,
+            fontSize: 20,
             fill: 0xffffff,
             fontWeight: 'bold',
             stroke: 0x000000,
-            strokeThickness: 4
+            strokeThickness: 3
         });
         
-        // Position stats above the game area (negative y or use absolute positioning)
-        // Since UI layer is on top, we'll position relative to screen, not game area
+        // Position stats at TOP of screen, completely OUTSIDE play area
         const screenWidth = this.graphics.app.screen.width;
         const screenHeight = this.graphics.app.screen.height;
+        const panelHeight = 50;
+        const panelY = 10; // Top of screen
         
-        // Create a background panel for stats (optional, but helps readability)
+        // Create a background panel for stats at top
         const panelBg = new PIXI.Graphics();
-        panelBg.beginFill(0x000000, 0.7);
-        panelBg.drawRoundedRect(10, 10, 250, 100, 5);
+        panelBg.beginFill(0x000000, 0.9);
+        panelBg.drawRoundedRect(10, panelY, screenWidth - 20, panelHeight, 5);
         panelBg.endFill();
         uiLayer.addChild(panelBg);
         
+        // Position stats horizontally across the top
         const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, style);
         scoreText.x = 20;
-        scoreText.y = 20;
+        scoreText.y = panelY + 5;
         uiLayer.addChild(scoreText);
         
         const livesText = new PIXI.Text(`Lives: ${this.lives}`, style);
         livesText.x = 20;
-        livesText.y = 50;
+        livesText.y = panelY + 28;
         uiLayer.addChild(livesText);
         
         const levelText = new PIXI.Text(`Level: ${this.level}`, style);
-        levelText.x = 20;
-        levelText.y = 80;
+        levelText.x = screenWidth - 150;
+        levelText.y = panelY + 16;
         uiLayer.addChild(levelText);
         
         // Draw game state messages (centered in play area)
@@ -2086,6 +2408,33 @@ class BreakoutGame {
             pauseText.y = this.height / 2;
             pauseText.anchor.set(0.5);
             uiLayer.addChild(pauseText);
+        } else if (this.gameState === 'waiting' || this.waitingForNextTurn) {
+            // Show message to press space for next life
+            const waitingStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 32,
+                fill: 0xffff00,
+                fontWeight: 'bold',
+                stroke: 0x000000,
+                strokeThickness: 4
+            });
+            const waitingText = new PIXI.Text('BALL LOST!', waitingStyle);
+            waitingText.x = this.width / 2;
+            waitingText.y = this.height / 2 - 40;
+            waitingText.anchor.set(0.5);
+            uiLayer.addChild(waitingText);
+            
+            const pressSpaceStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 20,
+                fill: 0xffffff,
+                fontWeight: 'bold'
+            });
+            const pressSpaceText = new PIXI.Text('Press SPACE to continue', pressSpaceStyle);
+            pressSpaceText.x = this.width / 2;
+            pressSpaceText.y = this.height / 2 + 10;
+            pressSpaceText.anchor.set(0.5);
+            uiLayer.addChild(pressSpaceText);
         }
     }
     

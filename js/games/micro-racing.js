@@ -1,13 +1,28 @@
-// Out Run Style Racing Game
+// Out Run Style Racing Game - PixiJS version
 console.log('Out Run Style Racing game script loaded');
 
 class MicroRacingGame {
     constructor(canvas) {
         console.log('MicroRacingGame constructor called');
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
         this.width = canvas.width;
         this.height = canvas.height;
+        this.isPreview = this.width < 400;
+        
+        if (this.isPreview) {
+            this.ctx = canvas.getContext('2d');
+            this.graphics = null;
+            this.spriteManager = null;
+            this.nesEffects = null;
+        } else {
+            this.ctx = null;
+            this.graphics = new GraphicsCore(canvas, {
+                width: this.width,
+                height: this.height,
+                backgroundColor: 0x1a1a2e,
+                pixelPerfect: true
+            });
+        }
         
         // Game state
         this.gameState = 'menu'; // menu, countdown, playing, paused, gameOver
@@ -63,8 +78,21 @@ class MicroRacingGame {
         this.currentCheckpoint = 0;
         
         // Animation and effects
-        this.particles = new ParticleSystem();
-        this.screenEffects = new ScreenEffects(canvas);
+        if (this.isPreview) {
+            this.particles = new ParticleSystem();
+            this.screenEffects = new ScreenEffects(canvas);
+        } else {
+            this.particles = null; // Will create PixiJS particles as needed
+            this.screenEffects = null; // Will be set from nesEffects
+        }
+        
+        // PixiJS sprites (only for main game)
+        if (!this.isPreview) {
+            this.roadSprites = [];
+            this.trafficCarSprites = [];
+            this.playerCarSprite = null;
+            this.roadsideObjectSprites = [];
+        }
         
         // Input handling
         this.keys = {};
@@ -78,7 +106,55 @@ class MicroRacingGame {
         
         // Start game loop
         this.lastTime = 0;
-        this.gameLoop();
+        
+        if (this.isPreview) {
+            this.gameLoop();
+        } else {
+            this.initGraphics();
+        }
+    }
+    
+    async initGraphics() {
+        if (this.isPreview) return;
+        await this.graphics.init();
+        if (!this.graphics || !this.graphics.isInitialized || !this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
+            console.error('Graphics initialization failed, falling back to requestAnimationFrame');
+            this.gameLoop();
+            return;
+        }
+        this.finishGraphicsInit();
+    }
+    
+    finishGraphicsInit() {
+        this.spriteManager = new SpriteManager(this.graphics);
+        this.nesEffects = this.graphics.getScreenEffects();
+        this.screenEffects = this.nesEffects;
+        this.initSprites();
+        this.startGameLoop();
+    }
+    
+    initSprites() {
+        if (this.isPreview) return;
+        // Sprites will be created dynamically during rendering
+    }
+    
+    startGameLoop() {
+        if (this.isPreview) {
+            this.gameLoop();
+            return;
+        }
+        
+        const ticker = this.graphics.getTicker();
+        if (ticker) {
+            // Store the ticker callback so we can remove it later
+            this.tickerCallback = (deltaTime) => {
+                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            };
+            ticker.add(this.tickerCallback);
+        } else {
+            console.warn('PixiJS ticker not available, falling back to requestAnimationFrame');
+            this.gameLoop();
+        }
     }
     
     generateRoad() {
@@ -379,8 +455,14 @@ class MicroRacingGame {
         }
         
         // Update effects
-        this.particles.update();
-        this.screenEffects.update();
+        if (this.isPreview) {
+            if (this.particles) this.particles.update();
+            if (this.screenEffects) this.screenEffects.update();
+        } else {
+            if (this.nesEffects && typeof this.nesEffects.update === 'function') {
+                this.nesEffects.update();
+            }
+        }
     }
     
     updateTraffic(dt) {
@@ -477,8 +559,12 @@ class MicroRacingGame {
     handleCollision() {
         // Slow down and add effects
         this.playerCar.speed *= 0.3;
-        this.screenEffects.shake(10);
-        this.particles.explode(this.width / 2, this.height - 100, 15, '#FF0000');
+        if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
+            this.screenEffects.shake(10);
+        }
+        if (this.particles && typeof this.particles.explode === 'function') {
+            this.particles.explode(this.width / 2, this.height - 100, 15, '#FF0000');
+        }
         this.lives--;
         this.score = Math.max(0, this.score - 100);
         
@@ -510,7 +596,9 @@ class MicroRacingGame {
             this.score += timeBonus * 10;
             
             // Add particles
-            this.particles.explode(this.width / 2, this.height - 150, 15, '#00FF00');
+            if (this.particles && typeof this.particles.explode === 'function') {
+                this.particles.explode(this.width / 2, this.height - 150, 15, '#00FF00');
+            }
         }
     }
     
@@ -532,7 +620,9 @@ class MicroRacingGame {
         const colorIndex = (this.level - 1) % this.trackColors.length;
         // Horizon color will be set in drawHorizon()
         
-        this.screenEffects.flash('#00FF00');
+        if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
+            this.screenEffects.flash('#00FF00');
+        }
         this.checkpointTime = Date.now();
     }
     
@@ -546,7 +636,70 @@ class MicroRacingGame {
         };
     }
     
+    drawPixi() {
+        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
+        
+        // Clear all layers
+        const bgLayer = this.graphics.getLayer('background');
+        const fgLayer = this.graphics.getLayer('foreground');
+        const uiLayer = this.graphics.getLayer('ui');
+        
+        bgLayer.removeChildren();
+        fgLayer.removeChildren();
+        uiLayer.removeChildren();
+        
+        // Draw background gradient
+        this.drawBackgroundPixi(bgLayer);
+        
+        // Draw stars
+        this.drawStarsPixi(bgLayer);
+        
+        if (this.gameState === 'menu') {
+            this.drawMenuPixi(uiLayer);
+            this.drawUIPixi(uiLayer);
+            return;
+        }
+        
+        if (this.gameState === 'playing' || this.gameState === 'countdown') {
+            // Draw horizon
+            this.drawHorizonPixi(bgLayer);
+            
+            // Draw road
+            this.drawRoadPixi(fgLayer);
+            
+            // Draw start/finish lines
+            this.drawStartFinishLinesPixi(fgLayer);
+            
+            // Draw roadside objects
+            this.drawRoadsideObjectsPixi(fgLayer);
+            
+            // Draw traffic
+            this.drawTrafficPixi(fgLayer);
+            
+            // Draw player car
+            this.drawPlayerCarPixi(fgLayer);
+        }
+        
+        // Draw UI
+        this.drawUIPixi(uiLayer);
+        
+        // Draw countdown
+        if (this.gameState === 'countdown') {
+            this.drawCountdownPixi(uiLayer);
+        }
+    }
+    
     draw() {
+        if (this.isPreview) {
+            this.drawCanvas2D();
+            return;
+        }
+        
+        // PixiJS rendering
+        this.drawPixi();
+    }
+    
+    drawCanvas2D() {
         // Clear canvas with sci-fi space gradient - changes per level
         const colorIndex = (this.level - 1) % this.trackColors.length;
         const bgColor = this.trackColors[colorIndex].horizon;
@@ -575,7 +728,10 @@ class MicroRacingGame {
         }
         
         // Apply screen effects
-        const shake = this.screenEffects.getShakeOffset();
+        let shake = { x: 0, y: 0 };
+        if (this.screenEffects && typeof this.screenEffects.getShakeOffset === 'function') {
+            shake = this.screenEffects.getShakeOffset();
+        }
         this.ctx.save();
         this.ctx.translate(shake.x, shake.y);
         
@@ -599,7 +755,9 @@ class MicroRacingGame {
             this.drawPlayerCar();
             
             // Draw particles
-            this.particles.draw(this.ctx);
+            if (this.particles && typeof this.particles.draw === 'function') {
+                this.particles.draw(this.ctx);
+            }
         }
         
         this.ctx.restore();
@@ -613,7 +771,9 @@ class MicroRacingGame {
         }
         
         // Draw screen effects
-        this.screenEffects.drawFlash();
+        if (this.screenEffects && typeof this.screenEffects.drawFlash === 'function') {
+            this.screenEffects.drawFlash();
+        }
     }
     
     drawMenu() {
@@ -645,6 +805,588 @@ class MicroRacingGame {
         this.ctx.fillText('Press SPACE to start', this.width / 2, this.height / 2 + 50);
         
         this.ctx.textAlign = 'left';
+    }
+    
+    // PixiJS rendering methods
+    drawBackgroundPixi(layer) {
+        const colorIndex = (this.level - 1) % this.trackColors.length;
+        const bgColor = this.trackColors[colorIndex].horizon;
+        
+        const r = parseInt(bgColor.slice(1, 3), 16);
+        const g = parseInt(bgColor.slice(3, 5), 16);
+        const b = parseInt(bgColor.slice(5, 7), 16);
+        const darkR = Math.max(0, Math.floor(r * 0.3));
+        const darkG = Math.max(0, Math.floor(g * 0.3));
+        const darkB = Math.max(0, Math.floor(b * 0.3));
+        
+        // Draw gradient using multiple rectangles with varying colors
+        const segments = 50;
+        for (let i = 0; i < segments; i++) {
+            const y1 = (i / segments) * this.height;
+            const y2 = ((i + 1) / segments) * this.height;
+            const progress = i / segments;
+            
+            let colorR, colorG, colorB;
+            if (progress < 0.5) {
+                const t = progress * 2;
+                colorR = Math.floor(r * (1 - t) + r * 0.8 * t);
+                colorG = Math.floor(g * (1 - t) + g * 0.8 * t);
+                colorB = Math.floor(b * (1 - t) + b * 0.8 * t);
+            } else {
+                const t = (progress - 0.5) * 2;
+                colorR = Math.floor(r * 0.8 * (1 - t) + darkR * t);
+                colorG = Math.floor(g * 0.8 * (1 - t) + darkG * t);
+                colorB = Math.floor(b * 0.8 * (1 - t) + darkB * t);
+            }
+            
+            const color = (colorR << 16) | (colorG << 8) | colorB;
+            const rect = new PIXI.Graphics();
+            rect.beginFill(color, 1);
+            rect.drawRect(0, y1, this.width, y2 - y1);
+            rect.endFill();
+            layer.addChild(rect);
+        }
+    }
+    
+    drawStarsPixi(layer) {
+        const stars = new PIXI.Graphics();
+        stars.beginFill(0xffffff, 1);
+        for (let i = 0; i < 100; i++) {
+            const x = (i * 137.5) % this.width;
+            const y = (i * 237.5) % this.horizonY;
+            const size = (i % 3) + 1;
+            stars.drawRect(x, y, size, size);
+        }
+        stars.endFill();
+        layer.addChild(stars);
+    }
+    
+    drawHorizonPixi(layer) {
+        const colorIndex = (this.level - 1) % this.trackColors.length;
+        const horizonColor = this.trackColors[colorIndex].horizon;
+        
+        const r = parseInt(horizonColor.slice(1, 3), 16);
+        const g = parseInt(horizonColor.slice(3, 5), 16);
+        const b = parseInt(horizonColor.slice(5, 7), 16);
+        
+        // Draw horizon line with glow effect
+        const horizon = new PIXI.Graphics();
+        horizon.lineStyle(3, (r << 16) | (g << 8) | b, 1);
+        horizon.moveTo(0, this.horizonY);
+        horizon.lineTo(this.width, this.horizonY);
+        
+        // Add glow lines above and below
+        horizon.lineStyle(2, (r << 16) | (g << 8) | b, 0.5);
+        horizon.moveTo(0, this.horizonY - 2);
+        horizon.lineTo(this.width, this.horizonY - 2);
+        horizon.moveTo(0, this.horizonY + 2);
+        horizon.lineTo(this.width, this.horizonY + 2);
+        
+        layer.addChild(horizon);
+    }
+    
+    drawRoadPixi(layer) {
+        const playerSegment = Math.floor(this.playerZ);
+        const cameraHeight = this.cameraHeight;
+        const cameraDepth = this.cameraDepth;
+        const numLanes = this.level >= 10 ? 2 : 3;
+        
+        const currentTime = Date.now();
+        const baseGlow = Math.sin(currentTime / 500) * 0.3 + 0.7;
+        
+        for (let i = 1; i < 100; i++) {
+            const segmentIndex = playerSegment + i;
+            if (segmentIndex >= this.roadSegments.length) break;
+            
+            const segment = this.roadSegments[segmentIndex];
+            const z = segment.z - this.playerZ;
+            
+            if (z <= 0 || z > 500) continue;
+            
+            const scale = cameraDepth / z;
+            const roadWidth = this.roadWidth * scale;
+            const roadX = (segment.curve * scale * 300) + this.width / 2;
+            const segmentY = this.horizonY + (cameraHeight / z);
+            
+            if (segmentY < this.horizonY) continue;
+            
+            if (i > 1) {
+                const prevSegment = this.roadSegments[segmentIndex - 1];
+                const prevZ = prevSegment.z - this.playerZ;
+                if (prevZ <= 0) continue;
+                
+                const prevScale = cameraDepth / prevZ;
+                const prevRoadWidth = this.roadWidth * prevScale;
+                const prevRoadX = (prevSegment.curve * prevScale * 300) + this.width / 2;
+                const prevSegmentY = this.horizonY + (cameraHeight / prevZ);
+                
+                if (prevSegmentY < this.horizonY) continue;
+                
+                // Draw road segment (trapezoid)
+                const colorIndex = (this.level - 1) % this.trackColors.length;
+                const trackColor = this.trackColors[colorIndex];
+                const trackBrightness = Math.min(1, z / 200);
+                const baseR = Math.floor(trackColor.r + trackBrightness * 30);
+                const baseG = Math.floor(trackColor.g + trackBrightness * 40);
+                const baseB = Math.floor(trackColor.b + trackBrightness * 60);
+                const roadColor = (baseR << 16) | (baseG << 8) | baseB;
+                
+                const roadSegment = new PIXI.Graphics();
+                roadSegment.beginFill(roadColor, 1);
+                roadSegment.drawPolygon([
+                    prevRoadX - prevRoadWidth / 2, prevSegmentY,
+                    prevRoadX + prevRoadWidth / 2, prevSegmentY,
+                    roadX + roadWidth / 2, segmentY,
+                    roadX - roadWidth / 2, segmentY
+                ]);
+                roadSegment.endFill();
+                layer.addChild(roadSegment);
+                
+                // Draw lane dividers
+                if (numLanes === 3) {
+                    const laneDividerWidth = Math.max(1, 2 * scale);
+                    const leftDividerX = prevRoadX - prevRoadWidth / 3;
+                    const rightDividerX = prevRoadX + prevRoadWidth / 3;
+                    
+                    const leftDivider = new PIXI.Graphics();
+                    leftDivider.lineStyle(laneDividerWidth, 0x00ffff, baseGlow);
+                    leftDivider.moveTo(leftDividerX, prevSegmentY);
+                    leftDivider.lineTo(leftDividerX - (prevRoadWidth - roadWidth) / 3, segmentY);
+                    layer.addChild(leftDivider);
+                    
+                    const rightDivider = new PIXI.Graphics();
+                    rightDivider.lineStyle(laneDividerWidth, 0xff00ff, baseGlow);
+                    rightDivider.moveTo(rightDividerX, prevSegmentY);
+                    rightDivider.lineTo(rightDividerX - (prevRoadWidth - roadWidth) / 3, segmentY);
+                    layer.addChild(rightDivider);
+                } else {
+                    const laneDividerWidth = Math.max(2, 3 * scale);
+                    if (i % 10 < 5) {
+                        const centerDivider = new PIXI.Graphics();
+                        centerDivider.lineStyle(laneDividerWidth, 0xffff00, baseGlow);
+                        centerDivider.moveTo(prevRoadX, prevSegmentY);
+                        centerDivider.lineTo(roadX, segmentY);
+                        layer.addChild(centerDivider);
+                    }
+                }
+                
+                // Draw track edges
+                const edgeGraphics = new PIXI.Graphics();
+                edgeGraphics.lineStyle(Math.max(2, 4 * scale), 0x00c8ff, 0.8);
+                edgeGraphics.moveTo(prevRoadX - prevRoadWidth / 2, prevSegmentY);
+                edgeGraphics.lineTo(roadX - roadWidth / 2, segmentY);
+                edgeGraphics.moveTo(prevRoadX + prevRoadWidth / 2, prevSegmentY);
+                edgeGraphics.lineTo(roadX + roadWidth / 2, segmentY);
+                layer.addChild(edgeGraphics);
+            }
+        }
+    }
+    
+    drawStartFinishLinesPixi(layer) {
+        // Start line
+        const startZ = 0 - this.playerZ;
+        if (startZ > 0 && startZ < 200) {
+            const scale = this.cameraDepth / startZ;
+            const roadWidth = this.roadWidth * scale;
+            const roadX = this.width / 2;
+            const segmentY = this.horizonY + (this.cameraHeight / startZ);
+            
+            if (segmentY >= this.horizonY && segmentY < this.height) {
+                const startLine = new PIXI.Graphics();
+                startLine.beginFill(0xffffff, 1);
+                startLine.drawRect(roadX - roadWidth / 2, segmentY - 12, roadWidth, 24);
+                
+                const checkerSize = roadWidth / 8;
+                startLine.beginFill(0x000000, 1);
+                for (let i = 0; i < 8; i += 2) {
+                    startLine.drawRect(roadX - roadWidth / 2 + i * checkerSize, segmentY - 12, checkerSize, 12);
+                    startLine.drawRect(roadX - roadWidth / 2 + (i + 1) * checkerSize, segmentY, checkerSize, 12);
+                }
+                startLine.endFill();
+                layer.addChild(startLine);
+            }
+        }
+        
+        // Finish line
+        const finishZ = this.roadLength - this.playerZ;
+        if (finishZ > 0 && finishZ < 500) {
+            const scale = this.cameraDepth / finishZ;
+            const roadWidth = this.roadWidth * scale;
+            const roadX = this.width / 2;
+            const segmentY = this.horizonY + (this.cameraHeight / finishZ);
+            
+            if (segmentY >= this.horizonY && segmentY < this.height) {
+                const finishLine = new PIXI.Graphics();
+                finishLine.beginFill(0xffd700, 1);
+                finishLine.drawRect(roadX - roadWidth / 2, segmentY - 15, roadWidth, 30);
+                
+                const checkerSize = roadWidth / 8;
+                finishLine.beginFill(0x000000, 1);
+                for (let i = 0; i < 8; i += 2) {
+                    finishLine.drawRect(roadX - roadWidth / 2 + i * checkerSize, segmentY - 15, checkerSize, 15);
+                    finishLine.drawRect(roadX - roadWidth / 2 + (i + 1) * checkerSize, segmentY, checkerSize, 15);
+                }
+                finishLine.endFill();
+                layer.addChild(finishLine);
+            }
+        }
+    }
+    
+    drawRoadsideObjectsPixi(layer) {
+        const playerSegment = Math.floor(this.playerZ);
+        const cameraHeight = this.cameraHeight;
+        const cameraDepth = this.cameraDepth;
+        
+        const currentTime = Date.now();
+        const baseGlow = Math.sin(currentTime / 800) * 0.3 + 0.7;
+        
+        let drawn = 0;
+        const maxDrawn = 30;
+        
+        for (let obj of this.roadsideObjects) {
+            const relativeZ = obj.z - this.playerZ;
+            
+            if (relativeZ <= 0 || relativeZ > 200) continue;
+            if (drawn++ >= maxDrawn) break;
+            
+            const scale = cameraDepth / relativeZ;
+            const roadWidth = this.roadWidth * scale;
+            
+            const segmentIndex = Math.max(0, Math.min(Math.floor(obj.z), this.roadSegments.length - 1));
+            const segment = this.roadSegments[segmentIndex];
+            if (!segment) continue;
+            
+            const baseRoadX = segment.curve * scale * 300 + this.width / 2;
+            const x = baseRoadX + obj.x * roadWidth / 2;
+            const y = this.horizonY + (cameraHeight / relativeZ);
+            
+            if (y < this.horizonY) continue;
+            
+            const size = Math.max(15, 50 * scale);
+            const glowIntensity = baseGlow;
+            
+            const objectGraphics = new PIXI.Graphics();
+            
+            if (obj.type === 0) {
+                // Energy pylon
+                const color = 0x00ffff;
+                objectGraphics.beginFill(color, glowIntensity);
+                objectGraphics.drawRect(x - size / 8, y - size, size / 4, size);
+                objectGraphics.drawRect(x - size / 3, y - size * 0.8, size * 2/3, size / 6);
+                objectGraphics.endFill();
+            } else if (obj.type === 1) {
+                // Floating crystal
+                const color = 0xff00ff;
+                objectGraphics.beginFill(color, glowIntensity);
+                objectGraphics.drawPolygon([
+                    x, y - size,
+                    x - size / 2, y - size / 2,
+                    x, y,
+                    x + size / 2, y - size / 2
+                ]);
+                objectGraphics.endFill();
+            } else {
+                // Energy beacon
+                const color = 0xffff00;
+                objectGraphics.beginFill(color, glowIntensity);
+                objectGraphics.drawCircle(x, y - size / 2, size / 3);
+                objectGraphics.endFill();
+            }
+            
+            layer.addChild(objectGraphics);
+        }
+    }
+    
+    drawTrafficPixi(layer) {
+        const playerSegment = Math.floor(this.playerZ);
+        const cameraHeight = this.cameraHeight;
+        const cameraDepth = this.cameraDepth;
+        
+        for (let car of this.trafficCars) {
+            const relativeZ = car.z - this.playerZ;
+            
+            if (relativeZ <= 0 || relativeZ > 400) continue;
+            
+            const scale = cameraDepth / relativeZ;
+            const roadWidth = this.roadWidth * scale;
+            
+            const segmentIndex = Math.max(0, Math.min(Math.floor(car.z), this.roadSegments.length - 1));
+            const segment = this.roadSegments[segmentIndex];
+            if (!segment) continue;
+            
+            const baseRoadX = segment.curve * scale * 300 + this.width / 2;
+            const x = baseRoadX + car.x * roadWidth / 2;
+            const y = this.horizonY + (cameraHeight / relativeZ) - 30 * scale;
+            
+            if (y < this.horizonY) continue;
+            
+            const baseWidth = this.level > 10 ? 40 : 30;
+            const baseHeight = this.level > 10 ? 70 : 60;
+            const width = Math.max(this.level > 10 ? 25 : 20, baseWidth * scale);
+            const height = Math.max(this.level > 10 ? 50 : 40, baseHeight * scale);
+            
+            car.hoverGlow = (car.hoverGlow || 0) + 0.1;
+            const hoverPulse = Math.sin(car.hoverGlow) * 0.3 + 0.7;
+            
+            const carGraphics = new PIXI.Graphics();
+            const colorHex = parseInt(car.color.replace('#', ''), 16);
+            const glowSize = width * 0.8;
+            const glowAlpha = 0.3 * hoverPulse;
+            
+            // Glow
+            carGraphics.beginFill(colorHex, glowAlpha);
+            carGraphics.drawRect(x - glowSize / 2, y - glowSize / 4, glowSize, glowSize / 2);
+            carGraphics.endFill();
+            
+            // Main body
+            carGraphics.beginFill(colorHex, 1);
+            carGraphics.drawRect(x - width / 2, y - height, width, height);
+            carGraphics.endFill();
+            
+            // Outline
+            carGraphics.lineStyle(Math.max(2, 3 * scale), 0xffffff, 1);
+            carGraphics.drawRect(x - width / 2, y - height, width, height);
+            
+            // Center indicator
+            carGraphics.beginFill(0xffffff, 1);
+            carGraphics.drawRect(x - 2 * scale, y - height, 4 * scale, height * 0.3);
+            carGraphics.drawRect(x - 2 * scale, y - height * 0.3, 4 * scale, height * 0.3);
+            carGraphics.endFill();
+            
+            // Engine glow
+            carGraphics.beginFill(0xffff00, hoverPulse * 0.8);
+            carGraphics.drawRect(x - width / 3, y - height * 0.2, width * 2/3, height * 0.2);
+            carGraphics.endFill();
+            
+            layer.addChild(carGraphics);
+        }
+    }
+    
+    drawPlayerCarPixi(layer) {
+        if (!this.playerCar.hoverGlow) this.playerCar.hoverGlow = 0;
+        this.playerCar.hoverGlow += 0.15;
+        const hoverPulse = Math.sin(this.playerCar.hoverGlow) * 0.3 + 0.7;
+        
+        const bottomRoadWidth = this.roadWidth * (this.cameraDepth / 20);
+        const x = this.width / 2 + this.playerCar.x * (bottomRoadWidth / 2);
+        const y = this.height - 120;
+        const width = 40;
+        const height = 75;
+        
+        const carGraphics = new PIXI.Graphics();
+        const colorHex = parseInt(this.playerCar.color.replace('#', ''), 16);
+        const glowSize = width * 0.8;
+        const glowAlpha = 0.3 * hoverPulse;
+        
+        // Glow
+        carGraphics.beginFill(0x00ffff, glowAlpha);
+        carGraphics.drawRect(x - glowSize / 2, y - glowSize / 4, glowSize, glowSize / 2);
+        carGraphics.endFill();
+        
+        // Main body
+        carGraphics.beginFill(colorHex, 1);
+        carGraphics.drawRect(x - width / 2, y - height, width, height * 0.7);
+        carGraphics.endFill();
+        
+        // Cockpit
+        carGraphics.beginFill(0x000000, 0.7);
+        carGraphics.drawRect(x - width / 3, y - height + height * 0.15, width * 2/3, height * 0.35);
+        carGraphics.endFill();
+        
+        // Engine pods
+        carGraphics.beginFill(colorHex, 1);
+        carGraphics.drawRect(x - width / 2 - width * 0.35, y - height * 0.6, width * 0.45, height * 0.45);
+        carGraphics.drawRect(x + width / 2 - width * 0.1, y - height * 0.6, width * 0.45, height * 0.45);
+        carGraphics.endFill();
+        
+        // Engine glow
+        carGraphics.beginFill(0xffff00, hoverPulse);
+        carGraphics.drawRect(x - width / 2 - width * 0.3, y - height * 0.55, width * 0.35, height * 0.35);
+        carGraphics.drawRect(x + width / 2 - width * 0.05, y - height * 0.55, width * 0.35, height * 0.35);
+        carGraphics.endFill();
+        
+        // Central energy core
+        carGraphics.beginFill(0x00ffff, hoverPulse);
+        carGraphics.drawRect(x - 4, y - height * 0.4, 8, height * 0.3);
+        carGraphics.endFill();
+        
+        // Wing details
+        carGraphics.beginFill(0xffffff, 0.5);
+        carGraphics.drawRect(x - width * 0.45, y - height * 0.5, width * 0.3, 3);
+        carGraphics.drawRect(x + width * 0.15, y - height * 0.5, width * 0.3, 3);
+        carGraphics.endFill();
+        
+        layer.addChild(carGraphics);
+    }
+    
+    drawUIPixi(layer) {
+        const panel = new PIXI.Graphics();
+        panel.beginFill(0x000000, 0.7);
+        panel.drawRect(10, 10, 250, 120);
+        panel.endFill();
+        layer.addChild(panel);
+        
+        const textStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0xffffff
+        });
+        
+        const scoreText = new PIXI.Text(`Score: ${Utils.formatScore(this.score)}`, textStyle);
+        scoreText.x = 20;
+        scoreText.y = 30;
+        layer.addChild(scoreText);
+        
+        const timeText = new PIXI.Text(`Time: ${Math.max(0, Math.floor(this.timeLeft))}s`, textStyle);
+        timeText.x = 20;
+        timeText.y = 50;
+        layer.addChild(timeText);
+        
+        const livesText = new PIXI.Text(`Lives: ${this.lives}`, textStyle);
+        livesText.x = 20;
+        livesText.y = 70;
+        layer.addChild(livesText);
+        
+        const levelText = new PIXI.Text(`Level: ${this.level}`, textStyle);
+        levelText.x = 20;
+        levelText.y = 90;
+        layer.addChild(levelText);
+        
+        const checkpointText = new PIXI.Text(`Checkpoint: ${this.currentCheckpoint}/${this.checkpoints.length}`, textStyle);
+        checkpointText.x = 20;
+        checkpointText.y = 110;
+        layer.addChild(checkpointText);
+        
+        // Speedometer
+        const speed = Math.floor(this.playerCar.speed);
+        const speedStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 20,
+            fill: speed > 150 ? 0xff0000 : 0x00ff00,
+            fontWeight: 'bold'
+        });
+        const speedText = new PIXI.Text(`SPEED: ${speed}`, speedStyle);
+        speedText.x = this.width - 150;
+        speedText.y = 30;
+        layer.addChild(speedText);
+        
+        // Game state messages
+        if (this.gameState === 'paused') {
+            const overlay = new PIXI.Graphics();
+            overlay.beginFill(0x000000, 0.8);
+            overlay.drawRect(0, 0, this.width, this.height);
+            overlay.endFill();
+            layer.addChild(overlay);
+            
+            const pauseStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 36,
+                fill: 0xffff00,
+                align: 'center'
+            });
+            const pauseText = new PIXI.Text('PAUSED', pauseStyle);
+            pauseText.anchor.set(0.5);
+            pauseText.x = this.width / 2;
+            pauseText.y = this.height / 2;
+            layer.addChild(pauseText);
+        } else if (this.gameState === 'gameOver') {
+            const overlay = new PIXI.Graphics();
+            overlay.beginFill(0x000000, 0.8);
+            overlay.drawRect(0, 0, this.width, this.height);
+            overlay.endFill();
+            layer.addChild(overlay);
+            
+            const gameOverStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 36,
+                fill: 0xff0000,
+                align: 'center'
+            });
+            const gameOverText = new PIXI.Text('GAME OVER', gameOverStyle);
+            gameOverText.anchor.set(0.5);
+            gameOverText.x = this.width / 2;
+            gameOverText.y = this.height / 2 - 20;
+            layer.addChild(gameOverText);
+            
+            const restartStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 18,
+                fill: 0xffffff,
+                align: 'center'
+            });
+            const restartText = new PIXI.Text('Press SPACE to restart', restartStyle);
+            restartText.anchor.set(0.5);
+            restartText.x = this.width / 2;
+            restartText.y = this.height / 2 + 70;
+            layer.addChild(restartText);
+        }
+    }
+    
+    drawMenuPixi(layer) {
+        const menuBg = new PIXI.Graphics();
+        menuBg.beginFill(0x1a1a2e, 1);
+        menuBg.drawRect(0, 0, this.width, this.height);
+        menuBg.endFill();
+        layer.addChild(menuBg);
+        
+        const titleStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 48,
+            fill: 0x00ffff,
+            fontWeight: 'bold',
+            align: 'center'
+        });
+        const title = new PIXI.Text('MICRO RACING', titleStyle);
+        title.anchor.set(0.5);
+        title.x = this.width / 2;
+        title.y = this.height / 2 - 100;
+        layer.addChild(title);
+        
+        const instructionStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0xffffff,
+            align: 'center'
+        });
+        
+        const instructions = [
+            'Press SPACE to Start',
+            'Arrow Keys: Steer',
+            'Avoid traffic and reach the finish!'
+        ];
+        
+        instructions.forEach((text, i) => {
+            const instruction = new PIXI.Text(text, instructionStyle);
+            instruction.anchor.set(0.5);
+            instruction.x = this.width / 2;
+            instruction.y = this.height / 2 - 20 + (i * 30);
+            layer.addChild(instruction);
+        });
+    }
+    
+    drawCountdownPixi(layer) {
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000000, 0.7);
+        overlay.drawRect(0, 0, this.width, this.height);
+        overlay.endFill();
+        layer.addChild(overlay);
+        
+        const countdownStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 120,
+            fill: 0xffff00,
+            fontWeight: 'bold',
+            align: 'center'
+        });
+        
+        const countdownText = new PIXI.Text(
+            this.countdown > 0 ? this.countdown.toString() : 'GO!',
+            countdownStyle
+        );
+        countdownText.anchor.set(0.5);
+        countdownText.x = this.width / 2;
+        countdownText.y = this.height / 2;
+        layer.addChild(countdownText);
     }
     
     drawHorizon() {
@@ -1100,9 +1842,38 @@ class MicroRacingGame {
         this.lastTime = currentTime;
         
         this.update(deltaTime);
-        this.draw();
         
-        requestAnimationFrame((time) => this.gameLoop(time));
+        if (this.isPreview) {
+            this.draw();
+            requestAnimationFrame((time) => this.gameLoop(time));
+        } else {
+            // PixiJS handles rendering automatically, but we still need to update our draw calls
+            this.drawPixi();
+            // Ticker handles loop, so don't call requestAnimationFrame
+        }
+    }
+    
+    cleanup() {
+        // Remove ticker if using PixiJS
+        if (!this.isPreview && this.graphics) {
+            const ticker = this.graphics.getTicker();
+            if (ticker && this.tickerCallback) {
+                ticker.remove(this.tickerCallback);
+            }
+            
+            // Clean up PixiJS app
+            if (this.graphics.app) {
+                this.graphics.app.destroy(true, { children: true, texture: true, baseTexture: true });
+            }
+        }
+        
+        // Clean up sprites
+        if (!this.isPreview) {
+            this.roadSprites = [];
+            this.trafficCarSprites = [];
+            this.playerCarSprite = null;
+            this.roadsideObjectSprites = [];
+        }
     }
 }
 
