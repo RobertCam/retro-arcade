@@ -1,13 +1,27 @@
-// Classic Tetris game implementation
+// Classic Tetris game implementation - PixiJS version
 class TetrisGame {
     constructor(canvas) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
         this.width = canvas.width;
         this.height = canvas.height;
         
         // Check if this is a preview canvas (smaller)
         this.isPreview = this.width < 400;
+        
+        if (this.isPreview) {
+            this.ctx = canvas.getContext('2d');
+            this.graphics = null;
+            this.spriteManager = null;
+            this.nesEffects = null;
+        } else {
+            this.ctx = null;
+            this.graphics = new GraphicsCore(canvas, {
+                width: this.width,
+                height: this.height,
+                backgroundColor: 0x000011,
+                pixelPerfect: true
+            });
+        }
         
         // Game state
         this.gameState = 'menu'; // menu, playing, paused, gameOver
@@ -197,10 +211,24 @@ class TetrisGame {
         this.lastKeyPress = {};
         this.setupInput();
         
-        // Particles for line clears
-        this.particles = new ParticleSystem();
-        this.screenEffects = new ScreenEffects(canvas);
-        this.crtFilter = new CRTFilter(canvas);
+        // Effects
+        if (this.isPreview) {
+            this.particles = new ParticleSystem();
+            this.screenEffects = new ScreenEffects(canvas);
+            this.crtFilter = new CRTFilter(canvas);
+        } else {
+            this.particles = null; // Will create PixiJS particles as needed
+            this.screenEffects = null; // Will be set from nesEffects
+            this.crtFilter = null; // CRT handled by NES effects
+        }
+        
+        // PixiJS sprites (only for main game)
+        if (!this.isPreview) {
+            this.boardSprites = [];
+            this.currentPieceSprite = null;
+            this.ghostPieceSprite = null;
+            this.nextPieceSprite = null;
+        }
         
         // If preview, draw static preview
         if (this.isPreview) {
@@ -213,7 +241,51 @@ class TetrisGame {
         this.gameLoop = this.gameLoop.bind(this);
         this.animationFrameId = null;
         this.isDestroyed = false;
-        this.animationFrameId = requestAnimationFrame(this.gameLoop);
+        
+        this.initGraphics();
+    }
+    
+    async initGraphics() {
+        if (this.isPreview) return;
+        await this.graphics.init();
+        if (!this.graphics || !this.graphics.isInitialized || !this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
+            console.error('Graphics initialization failed, falling back to requestAnimationFrame');
+            this.animationFrameId = requestAnimationFrame(this.gameLoop);
+            return;
+        }
+        this.finishGraphicsInit();
+    }
+    
+    finishGraphicsInit() {
+        this.spriteManager = new SpriteManager(this.graphics);
+        this.nesEffects = this.graphics.getScreenEffects();
+        this.screenEffects = this.nesEffects;
+        this.initSprites();
+        this.startGameLoop();
+    }
+    
+    initSprites() {
+        if (this.isPreview) return;
+        this.updateBoardSprites();
+    }
+    
+    startGameLoop() {
+        if (this.isPreview) {
+            this.animationFrameId = requestAnimationFrame(this.gameLoop);
+            return;
+        }
+        
+        const ticker = this.graphics.getTicker();
+        if (ticker) {
+            // Store the ticker callback so we can remove it later
+            this.tickerCallback = (deltaTime) => {
+                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            };
+            ticker.add(this.tickerCallback);
+        } else {
+            console.warn('PixiJS ticker not available, falling back to requestAnimationFrame');
+            this.animationFrameId = requestAnimationFrame(this.gameLoop);
+        }
     }
     
     initializeBoard() {
@@ -452,9 +524,19 @@ class TetrisGame {
         // Check for line clears
         this.clearLines();
         
+        // Update board sprites after locking
+        if (!this.isPreview) {
+            this.updateBoardSprites();
+        }
+        
         // Spawn next piece
         this.spawnPiece(this.nextPiece);
         this.nextPiece = this.getRandomPiece();
+        
+        // Update next piece sprite
+        if (!this.isPreview) {
+            this.updateNextPieceSprite();
+        }
     }
     
     clearLines() {
@@ -830,10 +912,492 @@ class TetrisGame {
         this.ctx.fillText('Press P to Resume', this.width / 2, this.height / 2 + 40);
     }
     
+    // PixiJS rendering methods
+    updateBoardSprites() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove old board sprites
+        this.boardSprites.forEach(sprite => {
+            if (sprite && sprite.parent) {
+                sprite.parent.removeChild(sprite);
+            }
+        });
+        this.boardSprites = [];
+        
+        // Draw board background with border
+        const boardBg = new PIXI.Graphics();
+        boardBg.beginFill(0x000033, 1);
+        boardBg.drawRect(this.boardX - 8, this.boardY - 8, 
+                        this.cols * this.cellSize + 16, 
+                        this.rows * this.cellSize + 16);
+        boardBg.endFill();
+        
+        boardBg.lineStyle(3, 0x00ffff, 1);
+        boardBg.drawRect(this.boardX - 8, this.boardY - 8, 
+                        this.cols * this.cellSize + 16, 
+                        this.rows * this.cellSize + 16);
+        
+        boardBg.beginFill(0x000011, 1);
+        boardBg.drawRect(this.boardX - 5, this.boardY - 5, 
+                        this.cols * this.cellSize + 10, 
+                        this.rows * this.cellSize + 10);
+        boardBg.endFill();
+        
+        // Draw grid lines
+        boardBg.lineStyle(1, 0x003355, 1);
+        for (let col = 0; col <= this.cols; col++) {
+            const x = this.boardX + col * this.cellSize;
+            boardBg.moveTo(x, this.boardY);
+            boardBg.lineTo(x, this.boardY + this.rows * this.cellSize);
+        }
+        for (let row = 0; row <= this.rows; row++) {
+            const y = this.boardY + row * this.cellSize;
+            boardBg.moveTo(this.boardX, y);
+            boardBg.lineTo(this.boardX + this.cols * this.cellSize, y);
+        }
+        
+        this.graphics.addToLayer(boardBg, 'background');
+        this.boardSprites.push(boardBg);
+        
+        // Draw placed pieces
+        for (let row = 0; row < this.rows; row++) {
+            for (let col = 0; col < this.cols; col++) {
+                if (this.board[row][col] !== 0) {
+                    const pieceType = this.board[row][col];
+                    const colorHex = parseInt((this.pieceColors[pieceType] || '#ffffff').replace('#', ''), 16);
+                    const cellSprite = this.createCellSprite(col, row, colorHex, 1.0);
+                    this.graphics.addToLayer(cellSprite, 'foreground');
+                    this.boardSprites.push(cellSprite);
+                }
+            }
+        }
+    }
+    
+    createCellSprite(boardX, boardY, color, alpha = 1.0) {
+        const screenX = this.boardX + boardX * this.cellSize;
+        const screenY = this.boardY + boardY * this.cellSize;
+        
+        const cellGraphics = new PIXI.Graphics();
+        cellGraphics.alpha = alpha;
+        
+        // Main cell
+        cellGraphics.beginFill(color, 1);
+        cellGraphics.drawRect(0, 0, this.cellSize - 1, this.cellSize - 1);
+        cellGraphics.endFill();
+        
+        // Border
+        cellGraphics.lineStyle(1, 0xffffff, 0.2);
+        cellGraphics.drawRect(0, 0, this.cellSize - 1, this.cellSize - 1);
+        
+        // Highlight for 3D effect
+        cellGraphics.lineStyle(1, 0xffffff, 0.4);
+        cellGraphics.moveTo(0, 0);
+        cellGraphics.lineTo(this.cellSize - 1, 0);
+        cellGraphics.lineTo(this.cellSize - 1, 1);
+        cellGraphics.lineTo(0, 1);
+        cellGraphics.lineTo(0, 0);
+        
+        cellGraphics.x = screenX;
+        cellGraphics.y = screenY;
+        
+        return cellGraphics;
+    }
+    
+    updateCurrentPieceSprite() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove old sprite
+        if (this.currentPieceSprite && this.currentPieceSprite.parent) {
+            this.currentPieceSprite.parent.removeChild(this.currentPieceSprite);
+        }
+        
+        if (!this.currentPiece || this.gameState !== 'playing') {
+            this.currentPieceSprite = null;
+            return;
+        }
+        
+        const pieceContainer = new PIXI.Container();
+        const shape = this.getPieceShape(this.currentPiece, this.currentRotation);
+        if (shape) {
+            const colorHex = parseInt((this.pieceColors[this.currentPiece] || '#ffffff').replace('#', ''), 16);
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const boardX = this.currentX + col;
+                        const boardY = this.currentY + row;
+                        if (boardY >= 0 && boardY < this.rows && boardX >= 0 && boardX < this.cols) {
+                            const cellSprite = this.createCellSprite(boardX, boardY, colorHex, 1.0);
+                            pieceContainer.addChild(cellSprite);
+                        }
+                    }
+                }
+            }
+        }
+        
+        this.graphics.addToLayer(pieceContainer, 'foreground');
+        this.currentPieceSprite = pieceContainer;
+    }
+    
+    updateGhostPieceSprite() {
+        if (this.isPreview || !this.graphics || !this.showGhost) return;
+        
+        // Remove old sprite
+        if (this.ghostPieceSprite && this.ghostPieceSprite.parent) {
+            this.ghostPieceSprite.parent.removeChild(this.ghostPieceSprite);
+        }
+        
+        if (!this.currentPiece || this.gameState !== 'playing') {
+            this.ghostPieceSprite = null;
+            return;
+        }
+        
+        const ghostY = this.getGhostY();
+        if (ghostY === this.currentY) {
+            this.ghostPieceSprite = null;
+            return;
+        }
+        
+        const ghostContainer = new PIXI.Container();
+        const shape = this.getPieceShape(this.currentPiece, this.currentRotation);
+        if (shape) {
+            const colorHex = parseInt((this.pieceColors[this.currentPiece] || '#ffffff').replace('#', ''), 16);
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const boardX = this.currentX + col;
+                        const boardY = ghostY + row;
+                        if (boardY >= 0 && boardY < this.rows && boardX >= 0 && boardX < this.cols) {
+                            const screenX = this.boardX + boardX * this.cellSize;
+                            const screenY = this.boardY + boardY * this.cellSize;
+                            
+                            const ghostCell = new PIXI.Graphics();
+                            ghostCell.lineStyle(2, colorHex, 1);
+                            ghostCell.drawRect(2, 2, this.cellSize - 5, this.cellSize - 5);
+                            ghostCell.x = screenX;
+                            ghostCell.y = screenY;
+                            
+                            ghostContainer.addChild(ghostCell);
+                        }
+                    }
+                }
+            }
+        }
+        
+        this.graphics.addToLayer(ghostContainer, 'foreground');
+        this.ghostPieceSprite = ghostContainer;
+    }
+    
+    updateNextPieceSprite() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove old sprite
+        if (this.nextPieceSprite && this.nextPieceSprite.parent) {
+            this.nextPieceSprite.parent.removeChild(this.nextPieceSprite);
+        }
+        
+        if (!this.nextPiece) {
+            this.nextPieceSprite = null;
+            return;
+        }
+        
+        const previewContainer = new PIXI.Container();
+        const previewX = 50;
+        const previewY = 120;
+        const previewSize = 20;
+        
+        // Preview box border
+        const border = new PIXI.Graphics();
+        border.lineStyle(2, 0x00ffff, 1);
+        border.drawRect(previewX - 5, previewY - 5, previewSize * 4 + 10, previewSize * 4 + 10);
+        previewContainer.addChild(border);
+        
+        // Draw next piece
+        const shape = this.getPieceShape(this.nextPiece, 0);
+        if (shape) {
+            const colorHex = parseInt((this.pieceColors[this.nextPiece] || '#ffffff').replace('#', ''), 16);
+            const offsetX = Math.floor((4 - shape[0].length) / 2);
+            const offsetY = Math.floor((4 - shape.length) / 2);
+            
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const cellGraphics = new PIXI.Graphics();
+                        cellGraphics.beginFill(colorHex, 1);
+                        cellGraphics.drawRect(0, 0, previewSize - 2, previewSize - 2);
+                        cellGraphics.endFill();
+                        
+                        cellGraphics.lineStyle(1, 0xffffff, 0.2);
+                        cellGraphics.drawRect(0, 0, previewSize - 2, previewSize - 2);
+                        
+                        cellGraphics.x = previewX + (offsetX + col) * previewSize;
+                        cellGraphics.y = previewY + (offsetY + row) * previewSize;
+                        previewContainer.addChild(cellGraphics);
+                    }
+                }
+            }
+        }
+        
+        this.graphics.addToLayer(previewContainer, 'ui');
+        this.nextPieceSprite = previewContainer;
+    }
+    
+    drawPixi() {
+        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
+        
+        // Update board sprites
+        this.updateBoardSprites();
+        
+        // Update current piece
+        this.updateCurrentPieceSprite();
+        
+        // Update ghost piece
+        this.updateGhostPieceSprite();
+        
+        // Update next piece
+        this.updateNextPieceSprite();
+        
+        // Draw UI
+        this.drawUIPixi();
+    }
+    
+    drawUIPixi() {
+        if (this.isPreview || !this.graphics) return;
+        
+        const uiLayer = this.graphics.getLayer('ui');
+        if (!uiLayer) return;
+        
+        // Remove existing UI text sprites (keep next piece)
+        const children = uiLayer.children.slice();
+        children.forEach(child => {
+            if (child !== this.nextPieceSprite) {
+                uiLayer.removeChild(child);
+            }
+        });
+        
+        const infoX = 50;
+        let infoY = 50;
+        const lineHeight = 25;
+        
+        const labelStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0x00ffff,
+            fontWeight: 'bold'
+        });
+        
+        const valueStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0xffffff
+        });
+        
+        // Score
+        const scoreLabel = new PIXI.Text('SCORE', labelStyle);
+        scoreLabel.x = infoX;
+        scoreLabel.y = infoY;
+        uiLayer.addChild(scoreLabel);
+        
+        const scoreValue = new PIXI.Text(Utils.formatScore(this.score), valueStyle);
+        scoreValue.x = infoX;
+        scoreValue.y = infoY + lineHeight;
+        uiLayer.addChild(scoreValue);
+        
+        infoY += lineHeight * 3;
+        
+        // Level
+        const levelLabel = new PIXI.Text('LEVEL', labelStyle);
+        levelLabel.x = infoX;
+        levelLabel.y = infoY;
+        uiLayer.addChild(levelLabel);
+        
+        const levelValue = new PIXI.Text(this.level.toString(), valueStyle);
+        levelValue.x = infoX;
+        levelValue.y = infoY + lineHeight;
+        uiLayer.addChild(levelValue);
+        
+        infoY += lineHeight * 3;
+        
+        // Lines
+        const linesLabel = new PIXI.Text('LINES', labelStyle);
+        linesLabel.x = infoX;
+        linesLabel.y = infoY;
+        uiLayer.addChild(linesLabel);
+        
+        const linesValue = new PIXI.Text(this.lines.toString(), valueStyle);
+        linesValue.x = infoX;
+        linesValue.y = infoY + lineHeight;
+        uiLayer.addChild(linesValue);
+        
+        // NEXT label
+        const nextLabel = new PIXI.Text('NEXT', labelStyle);
+        nextLabel.x = 50;
+        nextLabel.y = 110;
+        uiLayer.addChild(nextLabel);
+        
+        // Game state overlays
+        if (this.gameState === 'menu') {
+            this.drawMenuPixi(uiLayer);
+        } else if (this.gameState === 'gameOver') {
+            this.drawGameOverPixi(uiLayer);
+        } else if (this.gameState === 'paused') {
+            this.drawPausedPixi(uiLayer);
+        }
+    }
+    
+    drawMenuPixi(uiLayer) {
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000011, 1);
+        overlay.drawRect(0, 0, this.width, this.height);
+        overlay.endFill();
+        uiLayer.addChild(overlay);
+        
+        const titleStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 48,
+            fill: 0x00ffff,
+            fontWeight: 'bold',
+            align: 'center'
+        });
+        
+        const title = new PIXI.Text('TETRIS', titleStyle);
+        title.anchor.set(0.5);
+        title.x = this.width / 2;
+        title.y = this.height / 2 - 100;
+        uiLayer.addChild(title);
+        
+        const instructionStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 16,
+            fill: 0xffffff,
+            align: 'center'
+        });
+        
+        const instructions = [
+            'Press SPACE to Start',
+            'Arrow Keys: Move & Rotate',
+            'Space: Hard Drop | X: Rotate',
+            'P: Pause | R: Reset'
+        ];
+        
+        instructions.forEach((text, i) => {
+            const instruction = new PIXI.Text(text, instructionStyle);
+            instruction.anchor.set(0.5);
+            instruction.x = this.width / 2;
+            instruction.y = this.height / 2 - 20 + (i * 30);
+            uiLayer.addChild(instruction);
+        });
+    }
+    
+    drawGameOverPixi(uiLayer) {
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000000, 0.7);
+        overlay.drawRect(0, 0, this.width, this.height);
+        overlay.endFill();
+        uiLayer.addChild(overlay);
+        
+        const gameOverStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 48,
+            fill: 0xff0000,
+            fontWeight: 'bold',
+            align: 'center'
+        });
+        
+        const gameOver = new PIXI.Text('GAME OVER', gameOverStyle);
+        gameOver.anchor.set(0.5);
+        gameOver.x = this.width / 2;
+        gameOver.y = this.height / 2 - 50;
+        uiLayer.addChild(gameOver);
+        
+        const infoStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 24,
+            fill: 0xffffff,
+            align: 'center'
+        });
+        
+        const finalScore = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, infoStyle);
+        finalScore.anchor.set(0.5);
+        finalScore.x = this.width / 2;
+        finalScore.y = this.height / 2 + 20;
+        uiLayer.addChild(finalScore);
+        
+        const stats = new PIXI.Text(`Level: ${this.level} | Lines: ${this.lines}`, infoStyle);
+        stats.anchor.set(0.5);
+        stats.x = this.width / 2;
+        stats.y = this.height / 2 + 50;
+        uiLayer.addChild(stats);
+        
+        const restartStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 18,
+            fill: 0x00ffff,
+            align: 'center'
+        });
+        
+        const restart = new PIXI.Text('Press SPACE to Restart', restartStyle);
+        restart.anchor.set(0.5);
+        restart.x = this.width / 2;
+        restart.y = this.height / 2 + 100;
+        uiLayer.addChild(restart);
+        
+        const reset = new PIXI.Text('Press R to Reset', restartStyle);
+        reset.anchor.set(0.5);
+        reset.x = this.width / 2;
+        reset.y = this.height / 2 + 130;
+        uiLayer.addChild(reset);
+    }
+    
+    drawPausedPixi(uiLayer) {
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000000, 0.7);
+        overlay.drawRect(0, 0, this.width, this.height);
+        overlay.endFill();
+        uiLayer.addChild(overlay);
+        
+        const pauseStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 48,
+            fill: 0xffff00,
+            fontWeight: 'bold',
+            align: 'center'
+        });
+        
+        const paused = new PIXI.Text('PAUSED', pauseStyle);
+        paused.anchor.set(0.5);
+        paused.x = this.width / 2;
+        paused.y = this.height / 2;
+        uiLayer.addChild(paused);
+        
+        const resumeStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 18,
+            fill: 0xffffff,
+            align: 'center'
+        });
+        
+        const resume = new PIXI.Text('Press P to Resume', resumeStyle);
+        resume.anchor.set(0.5);
+        resume.x = this.width / 2;
+        resume.y = this.height / 2 + 40;
+        uiLayer.addChild(resume);
+    }
+    
     draw() {
         // Don't draw if destroyed
         if (this.isDestroyed) return;
         
+        if (this.isPreview) {
+            // Canvas 2D rendering for preview
+            this.drawCanvas2D();
+            return;
+        }
+        
+        // PixiJS rendering
+        this.drawPixi();
+    }
+    
+    drawCanvas2D() {
         // Draw background pattern
         this.drawBackground();
         
@@ -848,7 +1412,10 @@ class TetrisGame {
         }
         
         // Apply screen effects transform
-        const transform = this.screenEffects.getTransform();
+        let transform = { x: 0, y: 0, scale: 1 };
+        if (this.screenEffects && typeof this.screenEffects.getTransform === 'function') {
+            transform = this.screenEffects.getTransform();
+        }
         this.ctx.save();
         this.ctx.translate(this.width / 2, this.height / 2);
         this.ctx.scale(transform.scale, transform.scale);
@@ -871,8 +1438,10 @@ class TetrisGame {
         }
         
         // Draw particles
-        this.particles.update();
-        this.particles.draw(this.ctx);
+        if (this.particles) {
+            this.particles.update();
+            this.particles.draw(this.ctx);
+        }
         
         this.ctx.restore();
         
@@ -888,11 +1457,19 @@ class TetrisGame {
         }
         
         // Draw screen effects overlays
-        this.screenEffects.drawFlash();
-        this.screenEffects.drawRipple();
+        if (this.screenEffects) {
+            if (typeof this.screenEffects.drawFlash === 'function') {
+                this.screenEffects.drawFlash();
+            }
+            if (typeof this.screenEffects.drawRipple === 'function') {
+                this.screenEffects.drawRipple();
+            }
+        }
         
         // Apply CRT filter
-        this.crtFilter.draw(this.ctx);
+        if (this.crtFilter && typeof this.crtFilter.draw === 'function') {
+            this.crtFilter.draw(this.ctx);
+        }
     }
     
     update(currentTime) {
@@ -956,24 +1533,62 @@ class TetrisGame {
             }
         }
         
-        // Update particles
-        this.particles.update();
-        this.screenEffects.update();
+        // Update effects
+        if (this.isPreview) {
+            if (this.particles) this.particles.update();
+            if (this.screenEffects) this.screenEffects.update();
+        } else {
+            // Update sprites
+            this.updateCurrentPieceSprite();
+            this.updateGhostPieceSprite();
+            if (this.nesEffects && typeof this.nesEffects.update === 'function') {
+                this.nesEffects.update();
+            }
+        }
     }
     
     gameLoop(currentTime) {
         if (this.isDestroyed) return;
         
         this.update(currentTime);
-        this.draw();
-        this.animationFrameId = requestAnimationFrame(this.gameLoop);
+        
+        if (this.isPreview) {
+            this.draw();
+            this.animationFrameId = requestAnimationFrame(this.gameLoop);
+        } else {
+            // PixiJS handles rendering automatically, but we still need to update our draw calls
+            this.drawPixi();
+            // Ticker handles loop, so don't call requestAnimationFrame
+        }
     }
     
     cleanup() {
         // Stop game loop
         this.isDestroyed = true;
-        if (this.animationFrameId !== null) {
-            cancelAnimationFrame(this.animationFrameId);
+        
+        if (this.isPreview) {
+            if (this.animationFrameId !== null) {
+                cancelAnimationFrame(this.animationFrameId);
+            }
+        } else {
+            // Remove ticker if using PixiJS
+            if (this.graphics) {
+                const ticker = this.graphics.getTicker();
+                if (ticker && this.tickerCallback) {
+                    ticker.remove(this.tickerCallback);
+                }
+                
+                // Clean up PixiJS app
+                if (this.graphics.app) {
+                    this.graphics.app.destroy(true, { children: true, texture: true, baseTexture: true });
+                }
+            }
+            
+            // Clean up sprites
+            this.boardSprites = [];
+            this.currentPieceSprite = null;
+            this.ghostPieceSprite = null;
+            this.nextPieceSprite = null;
         }
         
         // Remove event listeners
@@ -996,6 +1611,12 @@ class TetrisGame {
         this.initializeBoard();
         this.spawnPiece();
         this.nextPiece = this.getRandomPiece();
+        
+        // Update sprites for new game
+        if (!this.isPreview) {
+            this.updateBoardSprites();
+            this.updateNextPieceSprite();
+        }
     }
     
     togglePause() {

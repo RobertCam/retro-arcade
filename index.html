@@ -135,8 +135,18 @@
         </div>
     </div>
     
+    <!-- PixiJS for WebGL rendering -->
+    <script src="https://pixijs.download/release/pixi.min.js"></script>
+    
     <script src="js/utils.js"></script>
     <script src="js/animation.js"></script>
+    
+    <!-- Graphics system (load in dependency order) -->
+    <script src="js/graphics/nes-effects.js"></script>
+    <script src="js/graphics/sprites.js"></script>
+    <script src="js/graphics/themes.js"></script>
+    <script src="js/graphics/graphics-core.js"></script>
+    
     <script src="js/games/breakout.js"></script>
     <script src="js/games/jezzball.js"></script>
     <script src="js/games/working-man.js"></script>
