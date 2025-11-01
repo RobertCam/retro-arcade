@@ -151,13 +151,13 @@ function closeGame() {
 
 function getGameTitle(gameName) {
     const titles = {
-        'breakout': 'Breakout',
-        'jezzball': 'Jezzball',
-        'racing': 'Micro Racing',
-        'micro-racing': 'Micro Racing',
-        'working-man': 'Working Man vs Oligarch',
-        'workingMan': 'Working Man vs Oligarch',
-        'tetris': 'Tetris'
+        'breakout': 'Neon Shards',
+        'jezzball': 'Containment Grid',
+        'racing': 'Hyper Runners',
+        'micro-racing': 'Hyper Runners',
+        'working-man': 'Rise of the Rivets',
+        'workingMan': 'Rise of the Rivets',
+        'tetris': 'Tetra Circuit'
     };
     return titles[gameName] || 'Game';
 }
