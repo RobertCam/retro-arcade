@@ -334,6 +334,9 @@ function setupInitialsInput() {
         });
         
         input.addEventListener('keydown', function(e) {
+            // Stop propagation to prevent game handlers from intercepting
+            e.stopPropagation();
+            
             // Handle backspace to go to previous input
             if (e.code === 'Backspace' && this.value === '' && index > 0) {
                 document.getElementById(inputs[index - 1]).focus();
