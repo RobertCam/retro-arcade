@@ -184,36 +184,49 @@ class MousePacmanGame {
     }
     
     detectTunnelRow() {
-        // Look for a row that has dots and spaces on the left/right sides
-        // The tunnel row typically has pattern like "      .   # ... #   .      "
+        // Look for the tunnel row - this is the row with open corridors on both sides
+        // The tunnel row typically has pattern like "      .            .      "
+        // This means: spaces (0) on left AND right sides, with dots (2) in between, and NO walls blocking the path
         for (let row = 0; row < this.mazeRows; row++) {
             if (this.maze[row]) {
-                // Check if row has dots and spaces on left side (cols 0-5) and right side (cols 22-27)
-                const hasLeftSpace = this.maze[row][0] === 0 || this.maze[row][1] === 0;
-                const hasRightSpace = this.maze[row][this.mazeCols - 1] === 0 || this.maze[row][this.mazeCols - 2] === 0;
-                const hasDot = this.maze[row].some(cell => cell === 2 || cell === 3);
+                // Check if first 6 columns are all empty (spaces) - left tunnel entrance
+                let leftTunnelOpen = true;
+                for (let col = 0; col <= 5; col++) {
+                    if (this.maze[row][col] === 1) { // Wall blocks tunnel
+                        leftTunnelOpen = false;
+                        break;
+                    }
+                }
                 
-                // Check if this row has the tunnel pattern (spaces on sides, dots somewhere)
-                if (hasLeftSpace && hasRightSpace && hasDot) {
-                    // Additional check: make sure there are spaces in tunnel areas
-                    let leftTunnelSpace = 0;
-                    let rightTunnelSpace = 0;
-                    for (let col = 0; col <= 5; col++) {
-                        if (this.maze[row][col] === 0) leftTunnelSpace++;
+                // Check if last 6 columns are all empty (spaces) - right tunnel entrance
+                let rightTunnelOpen = true;
+                for (let col = this.mazeCols - 6; col < this.mazeCols; col++) {
+                    if (this.maze[row][col] === 1) { // Wall blocks tunnel
+                        rightTunnelOpen = false;
+                        break;
                     }
-                    for (let col = 22; col < this.mazeCols; col++) {
-                        if (this.maze[row][col] === 0) rightTunnelSpace++;
+                }
+                
+                // Check if there are dots in the middle (indicates this is the main tunnel row)
+                let hasDots = false;
+                for (let col = 6; col < this.mazeCols - 6; col++) {
+                    if (this.maze[row][col] === 2 || this.maze[row][col] === 3) {
+                        hasDots = true;
+                        break;
                     }
-                    
-                    if (leftTunnelSpace >= 2 && rightTunnelSpace >= 2) {
-                        this.tunnelRow = row;
-                        return;
-                    }
+                }
+                
+                // Tunnel row has: open left side, open right side, and dots in middle (not blocked by walls)
+                if (leftTunnelOpen && rightTunnelOpen && hasDots) {
+                    this.tunnelRow = row;
+                    console.log(`[Tunnel] Detected tunnel row: ${row}`);
+                    return;
                 }
             }
         }
         // Fallback to row 14 if not found
         this.tunnelRow = 14;
+        console.warn(`[Tunnel] Tunnel row not detected, using default: ${this.tunnelRow}`);
     }
     
     findMouseStartPosition() {
@@ -280,10 +293,10 @@ class MousePacmanGame {
             "######.##### ## #####.######",
             "     #.##### ## #####.#     ",
             "     #.##          ##.#     ",
-            "     #.## ###GG### ##.#     ",
-            "######.## #      # ##.######",
-            "      .   # GGGG #   .      ",
-            "######.## #      # ##.######",
+            "     #.## ######## ##.#     ",
+            "######.## ######## ##.######",
+            "      .            .      ",
+            "######.## ######## ##.######",
             "     #.## ######## ##.#     ",
             "     #.##          ##.#     ",
             "     #.## ######## ##.#     ",
@@ -571,22 +584,36 @@ class MousePacmanGame {
         this.mazeSprites.forEach(sprite => {
             if (sprite && sprite.parent) {
                 sprite.parent.removeChild(sprite);
+                sprite.destroy();
             }
         });
         this.mazeSprites = [];
         
-        const wallColor = 0x2121de; // Classic Pac-Man blue
+        // House-themed wall colors - wood brown with darker outline
+        const wallColor = 0x8b4513; // Saddle brown (wood)
+        const wallOutline = 0x654321; // Darker brown (wood grain)
+        const wallHighlight = 0xa0522d; // Sienna (wood highlight)
         const mazeGraphics = new PIXI.Graphics();
         
-        // Draw walls
+        // Draw walls with house theme (wood planks)
         for (let row = 0; row < this.mazeRows; row++) {
             for (let col = 0; col < this.mazeCols; col++) {
                 if (this.maze[row][col] === 1) {
                     const x = this.mazeX + col * this.tileSize;
                     const y = this.mazeY + row * this.tileSize;
+                    
+                    // Wood plank effect
+                    mazeGraphics.lineStyle(1, wallOutline, 0.8);
                     mazeGraphics.beginFill(wallColor);
                     mazeGraphics.drawRect(x, y, this.tileSize, this.tileSize);
                     mazeGraphics.endFill();
+                    
+                    // Add wood grain lines
+                    mazeGraphics.lineStyle(0.5, wallHighlight, 0.4);
+                    mazeGraphics.moveTo(x + 1, y + this.tileSize / 3);
+                    mazeGraphics.lineTo(x + this.tileSize - 1, y + this.tileSize / 3);
+                    mazeGraphics.moveTo(x + 1, y + (this.tileSize * 2) / 3);
+                    mazeGraphics.lineTo(x + this.tileSize - 1, y + (this.tileSize * 2) / 3);
                 }
             }
         }
@@ -625,9 +652,11 @@ class MousePacmanGame {
                             
                             let dot;
                             if (cell === 2) {
-                                dot = this.spriteManager.createCircle(2, 0xffff00);
+                                // Larger cheese dots
+                                dot = this.spriteManager.createCircle(Math.max(3, this.tileSize * 0.15), 0xffff00);
                             } else {
-                                dot = this.spriteManager.createCircle(4, 0xffff00);
+                                // Larger power pellets
+                                dot = this.spriteManager.createCircle(Math.max(6, this.tileSize * 0.25), 0xffff00);
                             }
                             
                             if (dot) {
@@ -695,14 +724,17 @@ class MousePacmanGame {
     createMouseSprite() {
         const centerX = this.tileSize / 2;
         const centerY = this.tileSize / 2;
-        const bodySize = this.tileSize / 2 - 2;
+        const bodySize = this.tileSize * 0.6; // Larger mouse
         
         // Create mouse sprite container
         const mouseContainer = new PIXI.Container();
         
-        // Mouse body color - light gray/brown
-        const mouseColor = 0xc8c8c8;
-        const mouseDark = 0x808080;
+        // Mouse colors - more realistic mouse colors
+        const mouseBodyColor = 0xa0a0a0; // Light gray
+        const mouseDarkColor = 0x707070; // Darker gray for shading
+        const mouseEarColor = 0x808080; // Gray ears
+        const mouseEarInner = 0xffb6c1; // Light pink inner ears
+        const mouseNose = 0xff69b4; // Bright pink nose
         
         // Create graphics once
         const mouseGraphics = new PIXI.Graphics();
@@ -710,47 +742,70 @@ class MousePacmanGame {
         mouseGraphics.x = centerX;
         mouseGraphics.y = centerY;
         
-        // Draw body (oval)
-        mouseGraphics.beginFill(mouseColor);
-        mouseGraphics.drawEllipse(centerX, centerY, bodySize * 0.9, bodySize * 0.7);
+        // Draw body (larger, more mouse-like)
+        mouseGraphics.beginFill(mouseBodyColor);
+        mouseGraphics.drawEllipse(centerX, centerY, bodySize * 0.85, bodySize * 0.65);
         mouseGraphics.endFill();
         
-        // Draw ears (on top when facing right)
-        mouseGraphics.beginFill(mouseDark);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.4, centerY - bodySize * 0.4, bodySize * 0.3);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.4, centerY - bodySize * 0.4, bodySize * 0.3);
+        // Add shading to body
+        mouseGraphics.beginFill(mouseDarkColor, 0.3);
+        mouseGraphics.drawEllipse(centerX - bodySize * 0.1, centerY, bodySize * 0.7, bodySize * 0.5);
         mouseGraphics.endFill();
         
-        // Inner ear (pink)
-        mouseGraphics.beginFill(0xffc0cb);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.4, centerY - bodySize * 0.4, bodySize * 0.15);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.4, centerY - bodySize * 0.4, bodySize * 0.15);
+        // Draw larger ears (more prominent)
+        const earSize = bodySize * 0.35;
+        mouseGraphics.beginFill(mouseEarColor);
+        mouseGraphics.drawCircle(centerX - bodySize * 0.35, centerY - bodySize * 0.35, earSize);
+        mouseGraphics.drawCircle(centerX + bodySize * 0.35, centerY - bodySize * 0.35, earSize);
         mouseGraphics.endFill();
         
-        // Draw mouth (closed state)
-        const snoutX = centerX + bodySize * 0.5;
+        // Inner ear (pink, larger)
+        mouseGraphics.beginFill(mouseEarInner);
+        mouseGraphics.drawCircle(centerX - bodySize * 0.35, centerY - bodySize * 0.35, earSize * 0.5);
+        mouseGraphics.drawCircle(centerX + bodySize * 0.35, centerY - bodySize * 0.35, earSize * 0.5);
+        mouseGraphics.endFill();
+        
+        // Draw snout (more pronounced)
+        const snoutX = centerX + bodySize * 0.45;
         const snoutY = centerY;
+        const mouthOpen = this.mouse.mouthFrame === 1 ? 0.7 : 0.4;
+        
+        // Mouth (chomping animation)
         mouseGraphics.beginFill(0x000000);
-        mouseGraphics.drawEllipse(snoutX, snoutY, bodySize * 0.4 * 0.3, bodySize * 0.25);
+        mouseGraphics.drawEllipse(snoutX, snoutY, bodySize * 0.35 * mouthOpen, bodySize * 0.25);
         mouseGraphics.endFill();
         
-        // Draw nose (on snout)
-        mouseGraphics.beginFill(0xff69b4);
-        mouseGraphics.drawCircle(snoutX, snoutY - bodySize * 0.1, bodySize * 0.1);
+        // Nose (bright pink, larger)
+        mouseGraphics.beginFill(mouseNose);
+        mouseGraphics.drawCircle(snoutX, snoutY - bodySize * 0.12, bodySize * 0.12);
         mouseGraphics.endFill();
         
-        // Draw eyes
+        // Draw larger, more expressive eyes
+        const eyeSize = Math.max(2, bodySize * 0.12);
+        mouseGraphics.beginFill(0xffffff);
+        mouseGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.15, eyeSize);
+        mouseGraphics.drawCircle(centerX + bodySize * 0.15, centerY - bodySize * 0.15, eyeSize);
+        mouseGraphics.endFill();
         mouseGraphics.beginFill(0x000000);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.1, 2);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.1, centerY - bodySize * 0.1, 2);
+        mouseGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.15, eyeSize * 0.6);
+        mouseGraphics.drawCircle(centerX + bodySize * 0.15, centerY - bodySize * 0.15, eyeSize * 0.6);
         mouseGraphics.endFill();
         
-        // Draw tail (curved line on left when facing right)
-        mouseGraphics.lineStyle(3, mouseDark);
-        mouseGraphics.moveTo(centerX, centerY);
+        // Draw whiskers (more mouse-like)
+        mouseGraphics.lineStyle(1, mouseDarkColor, 0.6);
+        mouseGraphics.moveTo(snoutX, snoutY - bodySize * 0.05);
+        mouseGraphics.lineTo(snoutX + bodySize * 0.3, snoutY - bodySize * 0.1);
+        mouseGraphics.moveTo(snoutX, snoutY);
+        mouseGraphics.lineTo(snoutX + bodySize * 0.35, snoutY);
+        mouseGraphics.moveTo(snoutX, snoutY + bodySize * 0.05);
+        mouseGraphics.lineTo(snoutX + bodySize * 0.3, snoutY + bodySize * 0.1);
+        
+        // Draw tail (longer, more curved, mouse-like)
+        mouseGraphics.lineStyle(Math.max(2, bodySize * 0.15), mouseDarkColor, 0.8);
+        mouseGraphics.moveTo(centerX - bodySize * 0.4, centerY);
         mouseGraphics.quadraticCurveTo(
-            centerX - bodySize * 1.1, centerY - bodySize * 0.3,
-            centerX - bodySize * 1.2, centerY - bodySize * 0.6
+            centerX - bodySize * 1.2, centerY - bodySize * 0.2,
+            centerX - bodySize * 1.5, centerY - bodySize * 0.5
         );
         
         mouseContainer.addChild(mouseGraphics);
@@ -827,26 +882,87 @@ class MousePacmanGame {
     createCatSprite(cat, index) {
         const centerX = this.tileSize / 2;
         const centerY = this.tileSize / 2;
-        const size = this.tileSize - 2;
-        const radius = size / 2;
+        const bodySize = this.tileSize * 0.65; // Larger cats
         
         const catContainer = new PIXI.Container();
         const catGraphics = new PIXI.Graphics();
         
         const colorHex = parseInt(cat.color.replace('#', ''), 16);
+        const darkerColor = colorHex * 0.7; // Darker shade for depth
+        
+        // Draw cat body (more cat-like shape - rounded with slight point)
         catGraphics.beginFill(colorHex);
-        catGraphics.drawCircle(radius, radius, radius);
+        // Main body (rounded rectangle/ellipse)
+        catGraphics.drawEllipse(centerX, centerY, bodySize * 0.75, bodySize * 0.6);
         catGraphics.endFill();
         
-        // Eyes
+        // Add body shading
+        catGraphics.beginFill(darkerColor, 0.4);
+        catGraphics.drawEllipse(centerX - bodySize * 0.1, centerY, bodySize * 0.6, bodySize * 0.5);
+        catGraphics.endFill();
+        
+        // Draw ears (triangular, cat-like)
+        const earSize = bodySize * 0.25;
+        catGraphics.beginFill(colorHex);
+        // Left ear
+        catGraphics.moveTo(centerX - bodySize * 0.25, centerY - bodySize * 0.25);
+        catGraphics.lineTo(centerX - bodySize * 0.5, centerY - bodySize * 0.5);
+        catGraphics.lineTo(centerX - bodySize * 0.15, centerY - bodySize * 0.35);
+        catGraphics.closePath();
+        // Right ear
+        catGraphics.moveTo(centerX + bodySize * 0.25, centerY - bodySize * 0.25);
+        catGraphics.lineTo(centerX + bodySize * 0.5, centerY - bodySize * 0.5);
+        catGraphics.lineTo(centerX + bodySize * 0.15, centerY - bodySize * 0.35);
+        catGraphics.closePath();
+        catGraphics.endFill();
+        
+        // Inner ear (pink)
+        catGraphics.beginFill(0xffb6c1, 0.8);
+        catGraphics.moveTo(centerX - bodySize * 0.25, centerY - bodySize * 0.3);
+        catGraphics.lineTo(centerX - bodySize * 0.4, centerY - bodySize * 0.45);
+        catGraphics.lineTo(centerX - bodySize * 0.2, centerY - bodySize * 0.35);
+        catGraphics.closePath();
+        catGraphics.moveTo(centerX + bodySize * 0.25, centerY - bodySize * 0.3);
+        catGraphics.lineTo(centerX + bodySize * 0.4, centerY - bodySize * 0.45);
+        catGraphics.lineTo(centerX + bodySize * 0.2, centerY - bodySize * 0.35);
+        catGraphics.closePath();
+        catGraphics.endFill();
+        
+        // Draw larger, more cat-like eyes
+        const eyeSize = Math.max(2, bodySize * 0.15);
         catGraphics.beginFill(0xffffff);
-        catGraphics.drawCircle(radius - 3, radius - 2, 2);
-        catGraphics.drawCircle(radius + 3, radius - 2, 2);
+        catGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.1, eyeSize);
+        catGraphics.drawCircle(centerX + bodySize * 0.2, centerY - bodySize * 0.1, eyeSize);
         catGraphics.endFill();
+        
+        // Eye pupils (slit-like for cat)
         catGraphics.beginFill(0x000000);
-        catGraphics.drawCircle(radius - 3, radius - 2, 1);
-        catGraphics.drawCircle(radius + 3, radius - 2, 1);
+        catGraphics.drawEllipse(centerX - bodySize * 0.2, centerY - bodySize * 0.1, eyeSize * 0.7, eyeSize * 0.3);
+        catGraphics.drawEllipse(centerX + bodySize * 0.2, centerY - bodySize * 0.1, eyeSize * 0.7, eyeSize * 0.3);
         catGraphics.endFill();
+        
+        // Nose (small pink triangle)
+        catGraphics.beginFill(0xff69b4);
+        catGraphics.moveTo(centerX, centerY + bodySize * 0.05);
+        catGraphics.lineTo(centerX - bodySize * 0.08, centerY + bodySize * 0.15);
+        catGraphics.lineTo(centerX + bodySize * 0.08, centerY + bodySize * 0.15);
+        catGraphics.closePath();
+        catGraphics.endFill();
+        
+        // Mouth (small lines)
+        catGraphics.lineStyle(1.5, 0x000000, 0.8);
+        catGraphics.moveTo(centerX, centerY + bodySize * 0.15);
+        catGraphics.lineTo(centerX - bodySize * 0.15, centerY + bodySize * 0.25);
+        catGraphics.moveTo(centerX, centerY + bodySize * 0.15);
+        catGraphics.lineTo(centerX + bodySize * 0.15, centerY + bodySize * 0.25);
+        
+        // Tail (curved, cat-like)
+        catGraphics.lineStyle(Math.max(2, bodySize * 0.12), colorHex, 0.9);
+        catGraphics.moveTo(centerX - bodySize * 0.3, centerY + bodySize * 0.2);
+        catGraphics.quadraticCurveTo(
+            centerX - bodySize * 0.6, centerY + bodySize * 0.4,
+            centerX - bodySize * 0.5, centerY + bodySize * 0.5
+        );
         
         catContainer.addChild(catGraphics);
         this.graphics.addToLayer(catContainer, 'foreground');
@@ -1015,13 +1131,23 @@ class MousePacmanGame {
             else if (mouse.direction === 2) nextX--; // Left
             else if (mouse.direction === 3) nextY--; // Up
             
-            // Handle tunnel wraparound
-            if (mouse.y === this.tunnelRow && (mouse.x <= 5 || mouse.x >= 22)) {
-                if (nextX < 0) nextX = this.mazeCols - 1;
-                if (nextX >= this.mazeCols) nextX = 0;
+            // Handle tunnel wraparound - instant teleport when crossing boundaries in tunnel row
+            if (mouse.y === this.tunnelRow) {
+                // In tunnel row - allow wraparound at boundaries
+                if (mouse.direction === 2 && nextX < 0) {
+                    // Moving left, going off left edge - wrap to right side
+                    console.log(`[Mouse] Tunnel wrap LEFT: (${mouse.x}, ${mouse.y}) -> (${this.mazeCols - 1}, ${mouse.y})`);
+                    nextX = this.mazeCols - 1;
+                    nextY = mouse.y; // Keep same row
+                } else if (mouse.direction === 0 && nextX >= this.mazeCols) {
+                    // Moving right, going off right edge - wrap to left side
+                    console.log(`[Mouse] Tunnel wrap RIGHT: (${mouse.x}, ${mouse.y}) -> (0, ${mouse.y})`);
+                    nextX = 0;
+                    nextY = mouse.y; // Keep same row
+                }
             }
             
-            // Check if can move
+            // Check if can move (isValidCell handles tunnel wraparound)
             if (this.isValidCell(nextX, nextY)) {
                 mouse.x = nextX;
                 mouse.y = nextY;
@@ -1037,6 +1163,13 @@ class MousePacmanGame {
                 }
             }
         }
+        
+        // Animate mouth even when not moving
+        mouse.mouthFrameTime += deltaTime;
+        if (mouse.mouthFrameTime > 150) {
+            mouse.mouthFrame = (mouse.mouthFrame + 1) % 2;
+            mouse.mouthFrameTime = 0;
+        }
     }
     
     isValidCell(x, y) {
@@ -1046,15 +1179,28 @@ class MousePacmanGame {
             return false;
         }
         
-        // Y bounds check first
+        // Y bounds check
         if (y < 0 || y >= this.mazeRows) return false;
         
-        // X bounds check
-        if (x < 0 || x >= this.mazeCols) {
-            // Check if we're in tunnel area first
-            const isTunnelRow = (y === this.tunnelRow);
-            const isInTunnelArea = isTunnelRow && (x <= 5 || x >= 22);
-            if (!isInTunnelArea) return false;
+        // Check if we're in tunnel row and trying to wraparound
+        const isTunnelRow = (y === this.tunnelRow);
+        let actualX = x;
+        
+        // Handle X wraparound for tunnel - allow wrapping if in tunnel row
+        if (x < 0) {
+            if (isTunnelRow) {
+                // In tunnel row - wrap to right side
+                actualX = this.mazeCols - 1;
+            } else {
+                return false;
+            }
+        } else if (x >= this.mazeCols) {
+            if (isTunnelRow) {
+                // In tunnel row - wrap to left side
+                actualX = 0;
+            } else {
+                return false;
+            }
         }
         
         // Safety check for maze row
@@ -1063,33 +1209,16 @@ class MousePacmanGame {
             return false;
         }
         
-        // Special case: tunnel rows allow wraparound movement
-        // Left tunnel: columns 0-5 (spaces), Right tunnel: columns 22-27 (spaces)
-        const isTunnelRow = (y === this.tunnelRow);
-        const isInTunnelArea = isTunnelRow && (x <= 5 || x >= 22);
-        
-        // Handle wraparound for X
-        if (x < 0) {
-            // If in tunnel row and tunnel area, allow wraparound
-            if (isInTunnelArea) return true;
-            x = this.mazeCols - 1;
-        }
-        if (x >= this.mazeCols) {
-            // If in tunnel row and tunnel area, allow wraparound
-            if (isInTunnelArea) return true;
-            x = 0;
-        }
-        
-        // Safety check for maze bounds
-        if (x < 0 || x >= this.mazeCols) return false;
-        if (!this.maze || !this.maze[y] || this.maze[y][x] === undefined) return false;
+        // Safety check for maze bounds after wraparound
+        if (actualX < 0 || actualX >= this.mazeCols) return false;
+        if (this.maze[y][actualX] === undefined) return false;
         
         // Check if cell is a wall
-        return this.maze[y][x] !== 1;
+        return this.maze[y][actualX] !== 1;
     }
     
     canMoveInDirection(x, y, direction) {
-        // Handle wraparound for starting position
+        // Normalize x if needed (for checking current position)
         if (x < 0) x = this.mazeCols - 1;
         if (x >= this.mazeCols) x = 0;
         if (y < 0 || y >= this.mazeRows) return false;
@@ -1103,17 +1232,20 @@ class MousePacmanGame {
         else if (direction === 2) targetX = x - 1; // Left
         else if (direction === 3) targetY = y - 1; // Up
         
-        // Check if we're in a tunnel row and trying to wrap
+        // Check if we're in tunnel row and trying to wrap
         const isTunnelRow = (y === this.tunnelRow);
-        // Tunnel area is at x <= 5 or x >= 22 on tunnel row
-        const isInTunnelArea = isTunnelRow && (x <= 5 || x >= 22);
         
-        if (isInTunnelArea && (targetX < 0 || targetX >= this.mazeCols)) {
-            // In tunnel area, wraparound is allowed
+        // Allow wraparound if in tunnel row and moving left/right out of bounds
+        if (isTunnelRow && direction === 2 && targetX < 0) {
+            // Moving left, wrapping to right
+            return true;
+        }
+        if (isTunnelRow && direction === 0 && targetX >= this.mazeCols) {
+            // Moving right, wrapping to left
             return true;
         }
         
-        // Check if target cell is valid
+        // Check if target cell is valid (this handles wraparound for tunnel)
         return this.isValidCell(targetX, targetY);
     }
     
@@ -1232,10 +1364,16 @@ class MousePacmanGame {
                 else if (cat.direction === 2) nextX--;
                 else if (cat.direction === 3) nextY--;
                 
-                // Handle tunnel wraparound
-                if (cat.y === this.tunnelRow && (cat.x <= 5 || cat.x >= 22)) {
-                    if (nextX < 0) nextX = this.mazeCols - 1;
-                    if (nextX >= this.mazeCols) nextX = 0;
+                // Handle tunnel wraparound - instant teleport when crossing boundaries in tunnel row
+                if (cat.y === this.tunnelRow) {
+                    // In tunnel row - allow wraparound at boundaries
+                    if (cat.direction === 2 && cat.x === 0) {
+                        // Moving left from column 0 - wrap to right side
+                        nextX = this.mazeCols - 1;
+                    } else if (cat.direction === 0 && cat.x === this.mazeCols - 1) {
+                        // Moving right from last column - wrap to left side
+                        nextX = 0;
+                    }
                 }
                 
                 // Move if valid
@@ -1249,7 +1387,7 @@ class MousePacmanGame {
     
     
     chooseChaseDirection(cat, index) {
-        // Simple AI: pick direction toward mouse
+        // Simple AI: pick direction toward mouse, but don't get stuck
         const targetX = this.mouse.x;
         const targetY = this.mouse.y;
         
@@ -1261,11 +1399,24 @@ class MousePacmanGame {
             }
         }
         
-        if (possibleDirs.length === 0) return; // Stuck
+        if (possibleDirs.length === 0) {
+            // Completely stuck - shouldn't happen, but pick random if it does
+            cat.direction = Math.floor(Math.random() * 4);
+            return;
+        }
+        
+        // If only one direction available, take it immediately
+        if (possibleDirs.length === 1) {
+            cat.direction = possibleDirs[0];
+            return;
+        }
         
         // Choose direction closest to target
         let bestDir = possibleDirs[0];
         let bestDist = Infinity;
+        
+        // Also track current direction if it's still valid (prefer continuing forward)
+        let currentDirValid = possibleDirs.includes(cat.direction);
         
         possibleDirs.forEach(dir => {
             let testX = cat.x;
@@ -1276,13 +1427,25 @@ class MousePacmanGame {
             else if (dir === 3) testY--;
             
             const dist = Math.abs(testX - targetX) + Math.abs(testY - targetY);
-            if (dist < bestDist) {
-                bestDist = dist;
+            
+            // Prefer current direction if it's still good (reduces jitter)
+            // But if mouse hasn't moved much, occasionally explore
+            const preferCurrent = currentDirValid && dir === cat.direction;
+            const adjustedDist = preferCurrent ? dist * 0.8 : dist;
+            
+            if (adjustedDist < bestDist) {
+                bestDist = adjustedDist;
                 bestDir = dir;
             }
         });
         
         cat.direction = bestDir;
+        
+        // If cat can't move toward mouse effectively, occasionally pick random direction to explore
+        // This prevents cats from getting stuck when mouse stops
+        if (bestDist > 10 && Math.random() < 0.15) {
+            cat.direction = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
+        }
     }
     
     chooseRandomDirection(cat) {
@@ -1386,6 +1549,33 @@ class MousePacmanGame {
         this.readyTimer = 0;
         
         if (!this.isPreview) {
+            // Force recreation by removing old sprites first
+            if (this.mazeSprites && this.mazeSprites.length > 0) {
+                this.mazeSprites.forEach(sprite => {
+                    if (sprite && sprite.parent) {
+                        sprite.parent.removeChild(sprite);
+                        sprite.destroy();
+                    }
+                });
+                this.mazeSprites = [];
+            }
+            
+            if (this.cheeseContainer && this.cheeseSpriteMap) {
+                this.cheeseSpriteMap.forEach(sprite => {
+                    if (sprite && sprite.parent) {
+                        sprite.parent.removeChild(sprite);
+                        sprite.destroy();
+                    }
+                });
+                this.cheeseSpriteMap.clear();
+                if (this.cheeseContainer.parent) {
+                    this.cheeseContainer.parent.removeChild(this.cheeseContainer);
+                    this.cheeseContainer.destroy({ children: true });
+                }
+                this.cheeseContainer = null;
+            }
+            
+            // Recreate all sprites for new level
             this.updateMazeSprites();
             this.updateCheeseSprites();
             this.updateMouseSprite();
@@ -1458,7 +1648,16 @@ class MousePacmanGame {
     drawPixi() {
         if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
         
-        // Update sprites (only if playing)
+        // Maze and cheese should always be visible (background layer)
+        // Only update if sprites don't exist yet
+        if (!this.mazeSprites || this.mazeSprites.length === 0) {
+            this.updateMazeSprites();
+        }
+        if (!this.cheeseContainer || !this.cheeseSpriteMap || this.cheeseSpriteMap.size === 0) {
+            this.updateCheeseSprites();
+        }
+        
+        // Update sprites (only if playing or ready)
         if (this.gameState === 'playing' || this.gameState === 'ready') {
             this.updateMouseSprite();
             this.updateCatSprites();
@@ -1473,56 +1672,81 @@ class MousePacmanGame {
     drawUIPixi() {
         if (this.isPreview || !this.graphics) return;
         
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
+        
         const uiLayer = this.graphics.getLayer('ui');
         if (!uiLayer) return;
         
-        // Remove existing UI text sprites
+        // Remove existing game state messages
         const children = uiLayer.children.slice();
         children.forEach(child => {
-            uiLayer.removeChild(child);
+            if (child.userData && child.userData.isGameStateMessage) {
+                uiLayer.removeChild(child);
+            }
         });
         
-        // Score
-        const scoreStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 20,
-            fill: 0xffffff,
-            fontWeight: 'bold'
-        });
-        
-        const scoreText = new PIXI.Text(`SCORE: ${Utils.formatScore(this.score)}`, scoreStyle);
-        scoreText.x = 20;
-        scoreText.y = 10;
-        uiLayer.addChild(scoreText);
-        
-        // High Score
-        const highScore = highScoreManager.getTopScore('mouse-pacman');
-        const highScoreText = new PIXI.Text(`HIGH: ${Utils.formatScore(highScore)}`, scoreStyle);
-        highScoreText.x = 20;
-        highScoreText.y = 35;
-        uiLayer.addChild(highScoreText);
-        
-        // Lives
-        const livesStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 16,
-            fill: 0xffff00
-        });
-        
-        let livesText = 'LIVES: ';
-        for (let i = 0; i < this.lives; i++) {
-            livesText += '● ';
+        // Game state overlays
+        if (this.gameState === 'menu') {
+            this.drawMenuPixi(uiLayer);
+        } else if (this.gameState === 'gameOver') {
+            this.drawGameOverPixi(uiLayer);
+        } else if (this.gameState === 'paused') {
+            this.drawPausedPixi(uiLayer);
+        } else if (this.gameState === 'ready') {
+            this.drawReadyPixi(uiLayer);
         }
-        const livesDisplay = new PIXI.Text(livesText, livesStyle);
-        livesDisplay.x = this.width - 200;
-        livesDisplay.y = 10;
-        uiLayer.addChild(livesDisplay);
+    }
+    
+    updateStatsPanel() {
+        const statsPanel = document.getElementById('game-stats-panel');
+        if (!statsPanel) return;
         
-        // Level
-        const levelText = new PIXI.Text(`LEVEL: ${this.level}`, scoreStyle);
-        levelText.x = this.width - 200;
-        levelText.y = 35;
-        uiLayer.addChild(levelText);
+        const statsContent = statsPanel.querySelector('.stats-content');
+        if (!statsContent) return;
+        
+        const highScore = highScoreManager.getTopScore('mouse-pacman');
+        let livesHTML = '';
+        for (let i = 0; i < this.lives; i++) {
+            livesHTML += '● ';
+        }
+        
+        statsContent.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-label">Score</div>
+                <div class="stat-value">${Utils.formatScore(this.score)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">High</div>
+                <div class="stat-value">${Utils.formatScore(highScore)}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Lives</div>
+                <div class="stat-value">${livesHTML}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Level</div>
+                <div class="stat-value">${this.level}</div>
+            </div>
+        `;
+    }
+    
+    drawUIPixi() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Update stats panel instead of drawing on canvas
+        this.updateStatsPanel();
+        
+        const uiLayer = this.graphics.getLayer('ui');
+        if (!uiLayer) return;
+        
+        // Remove existing game state messages
+        const children = uiLayer.children.slice();
+        children.forEach(child => {
+            if (child.userData && child.userData.isGameStateMessage) {
+                uiLayer.removeChild(child);
+            }
+        });
         
         // Game state overlays
         if (this.gameState === 'menu') {
@@ -1537,10 +1761,12 @@ class MousePacmanGame {
     }
     
     drawMenuPixi(uiLayer) {
+        // Semi-transparent overlay so game is visible behind menu
         const overlay = new PIXI.Graphics();
-        overlay.beginFill(0x000000, 1);
+        overlay.beginFill(0x000000, 0.7);
         overlay.drawRect(0, 0, this.width, this.height);
         overlay.endFill();
+        overlay.userData = { isGameStateMessage: true };
         uiLayer.addChild(overlay);
         
         const titleStyle = new PIXI.TextStyle({
@@ -1555,6 +1781,7 @@ class MousePacmanGame {
         title.anchor.set(0.5);
         title.x = this.width / 2;
         title.y = this.height / 2 - 100;
+        title.userData = { isGameStateMessage: true };
         uiLayer.addChild(title);
         
         const instructionStyle = new PIXI.TextStyle({
@@ -1576,6 +1803,7 @@ class MousePacmanGame {
             instruction.anchor.set(0.5);
             instruction.x = this.width / 2;
             instruction.y = this.height / 2 + i * 30;
+            instruction.userData = { isGameStateMessage: true };
             uiLayer.addChild(instruction);
         });
     }
@@ -1585,6 +1813,7 @@ class MousePacmanGame {
         overlay.beginFill(0x000000, 0.8);
         overlay.drawRect(0, 0, this.width, this.height);
         overlay.endFill();
+        overlay.userData = { isGameStateMessage: true };
         uiLayer.addChild(overlay);
         
         const gameOverStyle = new PIXI.TextStyle({
@@ -1599,6 +1828,7 @@ class MousePacmanGame {
         gameOver.anchor.set(0.5);
         gameOver.x = this.width / 2;
         gameOver.y = this.height / 2 - 50;
+        gameOver.userData = { isGameStateMessage: true };
         uiLayer.addChild(gameOver);
         
         const infoStyle = new PIXI.TextStyle({
@@ -1612,6 +1842,7 @@ class MousePacmanGame {
         finalScore.anchor.set(0.5);
         finalScore.x = this.width / 2;
         finalScore.y = this.height / 2 + 20;
+        finalScore.userData = { isGameStateMessage: true };
         uiLayer.addChild(finalScore);
         
         const restartStyle = new PIXI.TextStyle({
@@ -1625,6 +1856,7 @@ class MousePacmanGame {
         restart.anchor.set(0.5);
         restart.x = this.width / 2;
         restart.y = this.height / 2 + 80;
+        restart.userData = { isGameStateMessage: true };
         uiLayer.addChild(restart);
     }
     
@@ -1633,6 +1865,7 @@ class MousePacmanGame {
         overlay.beginFill(0x000000, 0.7);
         overlay.drawRect(0, 0, this.width, this.height);
         overlay.endFill();
+        overlay.userData = { isGameStateMessage: true };
         uiLayer.addChild(overlay);
         
         const pauseStyle = new PIXI.TextStyle({
@@ -1647,6 +1880,7 @@ class MousePacmanGame {
         paused.anchor.set(0.5);
         paused.x = this.width / 2;
         paused.y = this.height / 2;
+        paused.userData = { isGameStateMessage: true };
         uiLayer.addChild(paused);
         
         const resumeStyle = new PIXI.TextStyle({
@@ -1660,6 +1894,7 @@ class MousePacmanGame {
         resume.anchor.set(0.5);
         resume.x = this.width / 2;
         resume.y = this.height / 2 + 40;
+        resume.userData = { isGameStateMessage: true };
         uiLayer.addChild(resume);
     }
     
@@ -1676,6 +1911,7 @@ class MousePacmanGame {
         ready.anchor.set(0.5);
         ready.x = this.width / 2;
         ready.y = this.height / 2;
+        ready.userData = { isGameStateMessage: true };
         uiLayer.addChild(ready);
     }
     
