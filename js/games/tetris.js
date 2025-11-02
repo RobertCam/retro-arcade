@@ -261,12 +261,18 @@ class TetrisGame {
         this.nesEffects = this.graphics.getScreenEffects();
         this.screenEffects = this.nesEffects;
         this.initSprites();
+        
+        // Draw initial frame before starting loop
+        this.drawPixi();
+        
         this.startGameLoop();
     }
     
     initSprites() {
         if (this.isPreview) return;
-        this.updateBoardSprites();
+        // Don't update board sprites yet - wait until game starts
+        // Just ensure background is drawn
+        this.drawBackgroundPixi();
     }
     
     startGameLoop() {
@@ -1144,20 +1150,96 @@ class TetrisGame {
     drawPixi() {
         if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
         
-        // Update board sprites
-        this.updateBoardSprites();
+        // Draw background first (only once, or when needed)
+        this.drawBackgroundPixi();
         
-        // Update current piece
-        this.updateCurrentPieceSprite();
+        // Update board sprites (only when playing, not in menu)
+        if (this.gameState === 'playing') {
+            this.updateBoardSprites();
+            // Update current piece
+            this.updateCurrentPieceSprite();
+            // Update ghost piece
+            this.updateGhostPieceSprite();
+        } else {
+            // Clear piece sprites when not playing
+            if (this.currentPieceSprite && this.currentPieceSprite.parent) {
+                this.currentPieceSprite.parent.removeChild(this.currentPieceSprite);
+                this.currentPieceSprite = null;
+            }
+            if (this.ghostPieceSprite && this.ghostPieceSprite.parent) {
+                this.ghostPieceSprite.parent.removeChild(this.ghostPieceSprite);
+                this.ghostPieceSprite = null;
+            }
+        }
         
-        // Update ghost piece
-        this.updateGhostPieceSprite();
-        
-        // Update next piece
-        this.updateNextPieceSprite();
+        // Update next piece (always show if we have one)
+        if (this.nextPiece) {
+            this.updateNextPieceSprite();
+        }
         
         // Draw UI
         this.drawUIPixi();
+    }
+    
+    drawBackgroundPixi() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Check if background already exists - don't recreate if it does
+        const bgLayer = this.graphics.getLayer('background');
+        if (!bgLayer) return;
+        
+        // Check if background already exists
+        const existingBg = bgLayer.children.find(child => child.userData && child.userData.isBackground);
+        if (existingBg) {
+            return; // Background already exists, don't recreate
+        }
+        
+        // Create background gradient
+        const background = new PIXI.Graphics();
+        background.userData = { isBackground: true };
+        
+        // Create gradient background (simulate with multiple rectangles)
+        const gradientSteps = 20;
+        const stepHeight = this.height / gradientSteps;
+        for (let i = 0; i < gradientSteps; i++) {
+            const y = i * stepHeight;
+            const alpha = 1.0;
+            // Gradient from #001122 to #000011
+            const r1 = 0x00, g1 = 0x11, b1 = 0x22;
+            const r2 = 0x00, g2 = 0x00, b2 = 0x11;
+            const t = i / gradientSteps;
+            const r = Math.floor(r1 + (r2 - r1) * t);
+            const g = Math.floor(g1 + (g2 - g1) * t);
+            const b = Math.floor(b1 + (b2 - b1) * t);
+            const color = (r << 16) | (g << 8) | b;
+            
+            background.beginFill(color, alpha);
+            background.drawRect(0, y, this.width, stepHeight + 1);
+            background.endFill();
+        }
+        
+        // Add subtle grid pattern
+        background.lineStyle(1, 0x001122, 0.5);
+        const gridSize = 40;
+        for (let x = 0; x < this.width; x += gridSize) {
+            background.moveTo(x, 0);
+            background.lineTo(x, this.height);
+        }
+        for (let y = 0; y < this.height; y += gridSize) {
+            background.moveTo(0, y);
+            background.lineTo(this.width, y);
+        }
+        
+        // Draw dots at intersections
+        background.beginFill(0x002244, 0.5);
+        for (let x = 0; x < this.width; x += gridSize) {
+            for (let y = 0; y < this.height; y += gridSize) {
+                background.drawRect(x - 1, y - 1, 2, 2);
+            }
+        }
+        background.endFill();
+        
+        bgLayer.addChildAt(background, 0);
     }
     
     drawUIPixi() {
@@ -1169,17 +1251,17 @@ class TetrisGame {
         const uiLayer = this.graphics.getLayer('ui');
         if (!uiLayer) return;
         
-        // Remove existing UI text sprites (keep next piece and game state messages)
-        const children = uiLayer.children.slice();
-        children.forEach(child => {
-            if (child !== this.nextPieceSprite && (!child.userData || !child.userData.isGameStateMessage)) {
-                uiLayer.removeChild(child);
+        // Remove existing game state message sprites (but keep next piece)
+        const childrenToRemove = [];
+        uiLayer.children.forEach(child => {
+            // Keep next piece sprite and any sprites without userData (might be other UI elements)
+            if (child !== this.nextPieceSprite && child.userData && child.userData.isGameStateMessage) {
+                childrenToRemove.push(child);
             }
         });
+        childrenToRemove.forEach(child => uiLayer.removeChild(child));
         
-        // Note: Next piece sprite is managed separately, don't remove it
-        
-        // Game state overlays
+        // Game state overlays (always draw fresh)
         if (this.gameState === 'menu') {
             this.drawMenuPixi(uiLayer);
         } else if (this.gameState === 'gameOver') {
