@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initWorkingMan();
     initTetris();
     initMousePacman();
+    initMinigolf();
     
     // Update high score displays
     highScoreManager.updateDisplay('breakout');
@@ -17,6 +18,7 @@ document.addEventListener('DOMContentLoaded', function() {
     highScoreManager.updateDisplay('working-man');
     highScoreManager.updateDisplay('tetris');
     highScoreManager.updateDisplay('mouse-pacman');
+    highScoreManager.updateDisplay('minigolf');
     
     // Add click handlers for arcade cabinets
     const arcadeCabinets = document.querySelectorAll('.arcade-cabinet');
@@ -157,6 +159,7 @@ function closeGame() {
     highScoreManager.updateDisplay('working-man');
     highScoreManager.updateDisplay('tetris');
     highScoreManager.updateDisplay('mouse-pacman');
+    highScoreManager.updateDisplay('minigolf');
 }
 
 function getGameTitle(gameName) {
@@ -168,7 +171,8 @@ function getGameTitle(gameName) {
         'working-man': 'Rise of the Rivets',
         'workingMan': 'Rise of the Rivets',
         'tetris': 'Tetra Circuit',
-        'mouse-pacman': 'Mousetrap'
+        'mouse-pacman': 'Mousetrap',
+        'minigolf': 'Mini Golf'
     };
     return titles[gameName] || 'Game';
 }
@@ -180,7 +184,8 @@ function getGameControls(gameName) {
         'racing': 'Arrow Keys: Steer | Space: Accelerate | R: Reset',
         'workingMan': 'Arrow Keys: Move | Space: Jump | R: Reset',
         'tetris': 'Arrow Keys: Move/Rotate | Down: Soft Drop | Space: Hard Drop | X: Rotate | P: Pause | R: Reset',
-        'mouse-pacman': 'Arrow Keys: Move | Space: Start/Pause | P: Pause | R: Reset'
+        'mouse-pacman': 'Arrow Keys: Move | Space: Start/Pause | P: Pause | R: Reset',
+        'minigolf': 'Mouse: Drag from ball to aim and set power | Release to shoot | Space: Start | P: Pause'
     };
     return controls[gameName] || 'Check game instructions';
 }
@@ -215,6 +220,10 @@ function initializeGame(gameName) {
         case 'mouse-pacman':
             console.log('Initializing Mouse Pac-Man game');
             currentGameInstance = new MousePacmanGame(canvas);
+            break;
+        case 'minigolf':
+            console.log('Initializing Mini Golf game');
+            currentGameInstance = new MinigolfGame(canvas);
             break;
     }
 }

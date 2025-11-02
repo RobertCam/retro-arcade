@@ -73,7 +73,8 @@ class HighScoreManager {
             racing: [],
             workingMan: [],
             tetris: [],
-            'mouse-pacman': []
+            'mouse-pacman': [],
+            minigolf: []
         };
     }
     
@@ -101,20 +102,43 @@ class HighScoreManager {
             this.scores[game] = [];
         }
         
-        // Only add if it qualifies for top 10
-        if (this.checkHighScore(game, score)) {
-            this.scores[game].push({
-                score: score,
-                player: playerName,
-                date: new Date().toISOString()
-            });
+        // Special handling for minigolf (lower is better)
+        if (game === 'minigolf') {
+            // Check if this qualifies (lower score is better)
+            const qualifies = this.scores[game].length < 10 || 
+                            score < Math.max(...this.scores[game].map(s => s.score));
             
-            // Sort by score (descending) and keep only top 10
-            this.scores[game].sort((a, b) => b.score - a.score);
-            this.scores[game] = this.scores[game].slice(0, 10);
-            
-            this.saveScores();
-            this.updateDisplay(game);
+            if (qualifies) {
+                this.scores[game].push({
+                    score: score,
+                    player: playerName,
+                    date: new Date().toISOString()
+                });
+                
+                // Sort by score (ascending for minigolf - lowest first)
+                this.scores[game].sort((a, b) => a.score - b.score);
+                this.scores[game] = this.scores[game].slice(0, 10);
+                
+                this.saveScores();
+                this.updateDisplay(game);
+            }
+        } else {
+            // Normal handling (higher is better)
+            // Only add if it qualifies for top 10
+            if (this.checkHighScore(game, score)) {
+                this.scores[game].push({
+                    score: score,
+                    player: playerName,
+                    date: new Date().toISOString()
+                });
+                
+                // Sort by score (descending) and keep only top 10
+                this.scores[game].sort((a, b) => b.score - a.score);
+                this.scores[game] = this.scores[game].slice(0, 10);
+                
+                this.saveScores();
+                this.updateDisplay(game);
+            }
         }
     }
     
@@ -173,6 +197,8 @@ class HighScoreManager {
         if (!this.scores[game] || this.scores[game].length === 0) {
             return 0;
         }
+        // For minigolf, first score is the lowest (best)
+        // For other games, first score is the highest (best)
         return this.scores[game][0].score;
     }
     

@@ -165,6 +165,17 @@ class MousePacmanGame {
     }
     
     getClassicMazeLayout() {
+        // Different layouts for different levels
+        const layoutIndex = (this.level - 1) % 2; // Alternate between 2 layouts
+        
+        if (layoutIndex === 0) {
+            return this.getMazeLayout1();
+        } else {
+            return this.getMazeLayout2();
+        }
+    }
+    
+    getMazeLayout1() {
         // Classic Pac-Man maze layout (28 columns x 31 rows)
         // # = wall, . = small dot, o = power pellet, space = corridor, G = ghost house
         return [
@@ -202,21 +213,59 @@ class MousePacmanGame {
         ];
     }
     
+    getMazeLayout2() {
+        // Alternative maze layout (28 columns x 31 rows)
+        // Slightly different arrangement for variety
+        return [
+            "############################",
+            "#............##............#",
+            "#.####.#####.##.#####.####.#",
+            "#o####.#####.##.#####.####o#",
+            "#.####.#####.##.#####.####.#",
+            "#......##....##....##......#",
+            "######.##### ## #####.######",
+            "     #.##### ## #####.#     ",
+            "     #.##          ##.#     ",
+            "     #.## ###GG### ##.#     ",
+            "######.## #      # ##.######",
+            "      .   # GGGG #   .      ",
+            "######.## #      # ##.######",
+            "     #.## ######## ##.#     ",
+            "     #.##          ##.#     ",
+            "     #.## ######## ##.#     ",
+            "######.## ######## ##.######",
+            "#............##............#",
+            "#.####.#####.##.#####.####.#",
+            "#.####.#####.##.#####.####.#",
+            "#o..##.......  .......##..o#",
+            "###.##.##.########.##.##.###",
+            "#......##....##....##......#",
+            "#.##########.##.##########.#",
+            "#.##########.##.##########.#",
+            "#..........................#",
+            "#.##########################",
+            "############################",
+            "#..........................#",
+            "#.##########################",
+            "############################"
+        ];
+    }
+    
     initializeCats() {
         this.cats = [
             {
                 x: 13, y: 14,
                 position: { x: 13, y: 14 },
-                direction: 2, // Start going left
-                nextDirection: 2,
+                direction: 3, // Face up to exit
+                nextDirection: 3,
                 speed: 0.095, // Slightly slower than mouse
                 color: '#ff0000', // Red - aggressive chaser
                 name: 'Blinky',
                 state: 'chase', // chase, scatter, frightened, eaten
                 targetX: 0,
                 targetY: 0,
-                inHouse: false,
-                houseTimer: 0
+                inHouse: true,
+                houseTimer: 0 // Exit immediately
             },
             {
                 x: 14, y: 14,
@@ -779,6 +828,7 @@ class MousePacmanGame {
         
         if (this.lastTime === 0) {
             this.lastTime = currentTime;
+            return;
         }
         
         const deltaTime = currentTime - this.lastTime;
@@ -802,6 +852,8 @@ class MousePacmanGame {
         
         this.draw();
         
+        // Continue animation loop only for preview mode
+        // Main game uses PixiJS ticker which calls this automatically
         if (this.isPreview) {
             this.animationFrameId = requestAnimationFrame(this.gameLoop);
         }
@@ -883,12 +935,28 @@ class MousePacmanGame {
         else if (mouse.direction === 2) targetGridX = currentGridX - 1; // Left
         else if (mouse.direction === 3) targetGridY = currentGridY - 1; // Up
         
-        // Handle wraparound for target
-        if (targetGridX < 0) targetGridX = this.mazeCols - 1;
-        if (targetGridX >= this.mazeCols) targetGridX = 0;
+        // Check if we're in a tunnel row (row 14)
+        const tunnelRows = [14];
+        const isTunnelRow = tunnelRows.includes(currentGridY);
+        // Tunnel area is at x <= 5 or x >= 22 on row 14
+        const isInTunnelArea = isTunnelRow && (currentGridX <= 5 || currentGridX >= 22);
         
-        // Check if target cell is valid (not a wall)
-        const canMove = this.isValidCell(targetGridX, targetGridY);
+        // Handle wraparound for target
+        let canMove = false;
+        
+        // If in tunnel area and trying to wrap, always allow it
+        if (isInTunnelArea && (targetGridX < 0 || targetGridX >= this.mazeCols)) {
+            canMove = true;
+            // Adjust target for wraparound
+            if (targetGridX < 0) targetGridX = this.mazeCols - 1;
+            if (targetGridX >= this.mazeCols) targetGridX = 0;
+        } else {
+            // Normal movement - handle wraparound first
+            if (targetGridX < 0) targetGridX = this.mazeCols - 1;
+            if (targetGridX >= this.mazeCols) targetGridX = 0;
+            // Then check if target cell is valid (not a wall)
+            canMove = this.isValidCell(targetGridX, targetGridY);
+        }
         
         if (canMove) {
             // Calculate new position
@@ -901,7 +969,28 @@ class MousePacmanGame {
             else if (mouse.direction === 3) newY -= moveSpeed;
             
             // Handle wraparound - check if we've crossed the boundary
-            if (newX < -1) {
+            // For tunnel row 14, check if we're in tunnel area and trying to wrap
+            if (isTunnelRow && (currentGridX <= 5 || currentGridX >= 22)) {
+                // In tunnel area - instant wraparound when crossing boundary
+                if (newX < -0.5) {
+                    // Wrapped left to right
+                    newX = this.mazeCols - 1;
+                    mouse.position.x = newX;
+                    mouse.x = this.mazeCols - 1;
+                } else if (newX > this.mazeCols - 0.5) {
+                    // Wrapped right to left  
+                    newX = 0;
+                    mouse.position.x = newX;
+                    mouse.x = 0;
+                } else {
+                    // Normal movement
+                    mouse.position.x = newX;
+                    let newGridX = Math.round(newX);
+                    if (newGridX < 0) newGridX = this.mazeCols - 1;
+                    if (newGridX >= this.mazeCols) newGridX = 0;
+                    mouse.x = newGridX;
+                }
+            } else if (newX < -1) {
                 // Wrapped left to right - calculate proper position on right side
                 const overflow = Math.abs(newX + 1);
                 newX = this.mazeCols - overflow;
@@ -957,12 +1046,31 @@ class MousePacmanGame {
     }
     
     isValidCell(x, y) {
-        // Handle wraparound for X
-        if (x < 0) x = this.mazeCols - 1;
-        if (x >= this.mazeCols) x = 0;
-        
-        // Y bounds check
+        // Y bounds check first
         if (y < 0 || y >= this.mazeRows) return false;
+        
+        // Special case: tunnel rows allow wraparound movement
+        // In the maze, row 14 (y=14) is "      .   # GGGG #   .      "
+        // Left tunnel: columns 0-5 (spaces), Right tunnel: columns 22-27 (spaces)
+        const tunnelRows = [14];
+        const isTunnelRow = tunnelRows.includes(y);
+        const isInTunnelArea = isTunnelRow && (x <= 5 || x >= 22);
+        
+        // Handle wraparound for X
+        if (x < 0) {
+            // If in tunnel row and tunnel area, allow wraparound
+            if (isInTunnelArea) return true;
+            x = this.mazeCols - 1;
+        }
+        if (x >= this.mazeCols) {
+            // If in tunnel row and tunnel area, allow wraparound
+            if (isInTunnelArea) return true;
+            x = 0;
+        }
+        
+        // Safety check for maze bounds
+        if (x < 0 || x >= this.mazeCols) return false;
+        if (!this.maze || !this.maze[y] || this.maze[y][x] === undefined) return false;
         
         // Check if cell is a wall
         return this.maze[y][x] !== 1;
@@ -982,6 +1090,17 @@ class MousePacmanGame {
         else if (direction === 1) targetY = y + 1; // Down
         else if (direction === 2) targetX = x - 1; // Left
         else if (direction === 3) targetY = y - 1; // Up
+        
+        // Check if we're in a tunnel row and trying to wrap
+        const tunnelRows = [14];
+        const isTunnelRow = tunnelRows.includes(y);
+        // Tunnel area is at x <= 5 or x >= 22 on row 14
+        const isInTunnelArea = isTunnelRow && (x <= 5 || x >= 22);
+        
+        if (isInTunnelArea && (targetX < 0 || targetX >= this.mazeCols)) {
+            // In tunnel area, wraparound is allowed
+            return true;
+        }
         
         // Check if target cell is valid
         return this.isValidCell(targetX, targetY);
@@ -1038,99 +1157,70 @@ class MousePacmanGame {
     activatePowerMode() {
         this.powerModeActive = true;
         this.powerModeTimer = 0;
+        this.catsEatenThisPower = 0; // Reset counter
         
         // Make all cats frightened
-        this.cats.forEach(cat => {
-            if (cat.state !== 'eaten') {
-                cat.state = 'frightened';
-                // Reverse direction
-                cat.direction = (cat.direction + 2) % 4;
-            }
-        });
+        if (this.cats) {
+            this.cats.forEach(cat => {
+                if (cat && cat.state !== 'eaten') {
+                    cat.state = 'frightened';
+                    // Reverse direction
+                    cat.direction = (cat.direction + 2) % 4;
+                }
+            });
+        }
     }
     
     updateCats(deltaTime) {
         this.cats.forEach((cat, index) => {
+            if (!cat) return;
+            
+            // Initialize position if missing
+            if (!cat.position) {
+                cat.position = { x: cat.x || 13, y: cat.y || 14 };
+            }
+            
+            // Handle house timer
             if (cat.inHouse) {
                 cat.houseTimer -= deltaTime;
                 if (cat.houseTimer <= 0) {
                     cat.inHouse = false;
-                    // When exiting house, move upward first to exit
-                    cat.direction = 3; // Up
+                    // Position at house center
                     cat.x = this.catStartPos.x;
                     cat.y = this.catStartPos.y;
-                    cat.position = { x: cat.x, y: cat.y };
-                    // Start moving immediately to exit
-                    this.moveCatOutOfHouse(cat, deltaTime);
+                    cat.position.x = cat.x;
+                    cat.position.y = cat.y;
+                    cat.direction = 3; // Face up to exit
                 } else {
-                    // Don't move if still in house
-                    return;
+                    return; // Still waiting
                 }
             }
             
-            // Check if cat is in the house area but should be exiting
-            if (!cat.inHouse && cat.y >= 13 && cat.y <= 14 && cat.x >= 11 && cat.x <= 16) {
-                // Still in house area, continue exit logic
-                this.moveCatOutOfHouse(cat, deltaTime);
-                return; // Don't run AI until fully out
+            // Get grid position
+            const gridX = Math.round(cat.position.x);
+            const gridY = Math.round(cat.position.y);
+            
+            // If cat is in house rows (y >= 13), use exit AI targeting door
+            if (gridY >= 13) {
+                // Target the door exit: row 12, column 13-14 (center of door)
+                cat.targetX = 13.5;
+                cat.targetY = 12;
+                // Use pathfinding to reach target
+                this.moveCatTowardTarget(cat, deltaTime);
+                return;
             }
             
-            // Calculate target based on AI
+            // Cat is out - run AI
             if (cat.state === 'frightened') {
-                // Move randomly when frightened
                 this.updateCatFrightened(cat, deltaTime);
             } else if (cat.state === 'eaten') {
-                // Return to house
                 this.updateCatEaten(cat, deltaTime);
             } else {
-                // Chase or scatter
                 this.updateCatAI(cat, index, deltaTime);
             }
         });
     }
     
-    moveCatOutOfHouse(cat, deltaTime) {
-        // Special movement to exit house
-        // Looking at the maze, row 12 is the exit row (y=12), column 13 is the center exit
-        const houseExitY = 12;
-        const houseExitX = 13; // Exit point at center
-        
-        // If cat is at house starting position (y=14), need to move up
-        if (cat.y >= 14) {
-            // First align horizontally with the exit if needed
-            const gridX = Math.round(cat.position ? cat.position.x : cat.x);
-            const gridY = Math.round(cat.position ? cat.position.y : cat.y);
-            
-            if (gridX !== houseExitX) {
-                // Move horizontally toward exit
-                if (gridX < houseExitX && this.isValidCell(gridX + 1, gridY)) {
-                    cat.direction = 0; // Right
-                    this.moveCat(cat, deltaTime, cat.speed);
-                    return;
-                } else if (gridX > houseExitX && this.isValidCell(gridX - 1, gridY)) {
-                    cat.direction = 2; // Left
-                    this.moveCat(cat, deltaTime, cat.speed);
-                    return;
-                }
-            }
-            
-            // Aligned horizontally, now try to move up
-            if (this.isValidCell(gridX, gridY - 1)) {
-                cat.direction = 3; // Up
-                this.moveCat(cat, deltaTime, cat.speed);
-            }
-        } else if (cat.y === 13) {
-            // At row 13, continue moving up toward exit
-            const gridX = Math.round(cat.position ? cat.position.x : cat.x);
-            if (this.isValidCell(gridX, 12)) {
-                cat.direction = 3; // Up
-                this.moveCat(cat, deltaTime, cat.speed);
-            }
-        } else if (cat.y <= houseExitY) {
-            // Successfully exited house area
-            cat.inHouse = false;
-        }
-    }
     
     updateCatAI(cat, index, deltaTime) {
         // Different AI for each cat
@@ -1160,15 +1250,32 @@ class MousePacmanGame {
     }
     
     updateCatFrightened(cat, deltaTime) {
-        // Random movement when frightened
-        const moveSpeed = cat.speed * 0.5 * (deltaTime / 16.67); // Slower when frightened
+        // Random movement when frightened - only change direction when aligned
+        const gridX = Math.round(cat.position ? cat.position.x : cat.x);
+        const gridY = Math.round(cat.position ? cat.position.y : cat.y);
+        const alignedX = Math.abs((cat.position ? cat.position.x : cat.x) - gridX) < 0.3;
+        const alignedY = Math.abs((cat.position ? cat.position.y : cat.y) - gridY) < 0.3;
+        const isAligned = (cat.direction === 0 || cat.direction === 2) ? alignedX : alignedY;
         
-        // Change direction randomly sometimes
-        if (Math.random() < 0.05) {
-            const directions = [0, 1, 2, 3];
-            cat.direction = directions[Math.floor(Math.random() * directions.length)];
+        // Change direction randomly when aligned to prevent bouncing
+        if (isAligned && Math.random() < 0.1) {
+            const possibleDirs = [];
+            for (let dir = 0; dir < 4; dir++) {
+                if (this.canMoveInDirection(gridX, gridY, dir)) {
+                    possibleDirs.push(dir);
+                }
+            }
+            if (possibleDirs.length > 0) {
+                cat.direction = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
+                // Snap to grid when changing direction
+                if (cat.position) {
+                    cat.position.x = gridX;
+                    cat.position.y = gridY;
+                }
+            }
         }
         
+        const moveSpeed = cat.speed * 0.5; // Slower when frightened
         this.moveCat(cat, deltaTime, moveSpeed);
     }
     
@@ -1177,65 +1284,148 @@ class MousePacmanGame {
         const houseX = this.catStartPos.x;
         const houseY = this.catStartPos.y;
         
-        const dx = houseX - cat.x;
-        const dy = houseY - cat.y;
+        // Use position for smooth movement
+        const currentX = cat.position ? cat.position.x : cat.x;
+        const currentY = cat.position ? cat.position.y : cat.y;
+        const currentGridX = Math.round(currentX);
+        const currentGridY = Math.round(currentY);
         
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
-            // Reached house
+        // Check if reached house
+        if (currentGridX === houseX && currentGridY === houseY) {
+            // Reached house - regenerate the cat
             cat.x = houseX;
             cat.y = houseY;
+            cat.position = { x: houseX, y: houseY };
             cat.state = 'chase';
             cat.inHouse = true;
-            cat.houseTimer = 3000;
-        } else {
-            // Move toward house
-            if (Math.abs(dx) > Math.abs(dy)) {
-                cat.direction = dx > 0 ? 0 : 2;
+            cat.direction = 3; // Face up to exit
+            // Set house timer based on which cat (like initial spawn)
+            const catIndex = this.cats.indexOf(cat);
+            if (catIndex === 0) {
+                cat.houseTimer = 0; // Red cat exits immediately
+            } else if (catIndex === 1) {
+                cat.houseTimer = 2000; // Pink after 2 seconds
+            } else if (catIndex === 2) {
+                cat.houseTimer = 4000; // Cyan after 4 seconds
             } else {
-                cat.direction = dy > 0 ? 1 : 3;
+                cat.houseTimer = 6000; // Orange after 6 seconds
             }
-            
-            this.moveCat(cat, deltaTime, cat.speed * 2); // Faster when returning
-        }
-    }
-    
-    moveCatTowardTarget(cat, deltaTime) {
-        const dx = cat.targetX - cat.x;
-        const dy = cat.targetY - cat.y;
-        
-        // Choose best direction
-        const possibleDirs = [];
-        
-        // Try each direction
-        for (let dir = 0; dir < 4; dir++) {
-            if (this.canMoveInDirection(cat.x, cat.y, dir) && dir !== (cat.direction + 2) % 4) {
-                possibleDirs.push(dir);
-            }
+            return;
         }
         
-        if (possibleDirs.length === 0) return;
+        // Move toward house - use pathfinding
+        const targetGridX = houseX;
+        const targetGridY = houseY;
         
-        // Choose direction closest to target
-        let bestDir = possibleDirs[0];
+        // Simple pathfinding - prefer moving toward target
+        let bestDir = cat.direction;
         let bestDist = Infinity;
         
-        possibleDirs.forEach(dir => {
-            let testX = cat.x;
-            let testY = cat.y;
+        // Try each direction (don't reverse unless necessary)
+        for (let dir = 0; dir < 4; dir++) {
+            // Don't reverse unless stuck
+            if (dir === (cat.direction + 2) % 4) continue;
+            
+            let testX = currentGridX;
+            let testY = currentGridY;
             
             if (dir === 0) testX += 1;
             else if (dir === 1) testY += 1;
             else if (dir === 2) testX -= 1;
             else if (dir === 3) testY -= 1;
             
-            const dist = Math.abs(testX - cat.targetX) + Math.abs(testY - cat.targetY);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestDir = dir;
+            // Handle wraparound
+            if (testX < 0) testX = this.mazeCols - 1;
+            if (testX >= this.mazeCols) testX = 0;
+            
+            if (this.isValidCell(testX, testY)) {
+                const dist = Math.abs(testX - targetGridX) + Math.abs(testY - targetGridY);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestDir = dir;
+                }
             }
-        });
+        }
+        
+        // If no good direction found, allow reverse
+        if (bestDist === Infinity) {
+            const reverseDir = (cat.direction + 2) % 4;
+            let testX = currentGridX;
+            let testY = currentGridY;
+            if (reverseDir === 0) testX += 1;
+            else if (reverseDir === 1) testY += 1;
+            else if (reverseDir === 2) testX -= 1;
+            else if (reverseDir === 3) testY -= 1;
+            if (testX < 0) testX = this.mazeCols - 1;
+            if (testX >= this.mazeCols) testX = 0;
+            if (this.isValidCell(testX, testY)) {
+                bestDir = reverseDir;
+            }
+        }
         
         cat.direction = bestDir;
+        this.moveCat(cat, deltaTime, cat.speed * 2); // Faster when returning
+    }
+    
+    moveCatTowardTarget(cat, deltaTime) {
+        const gridX = Math.round(cat.position ? cat.position.x : cat.x);
+        const gridY = Math.round(cat.position ? cat.position.y : cat.y);
+        
+        // Only change direction when aligned to grid
+        const alignedX = Math.abs((cat.position ? cat.position.x : cat.x) - gridX) < 0.3;
+        const alignedY = Math.abs((cat.position ? cat.position.y : cat.y) - gridY) < 0.3;
+        const isAligned = (cat.direction === 0 || cat.direction === 2) ? alignedX : alignedY;
+        
+        // Choose best direction
+        const possibleDirs = [];
+        
+        // Try each direction
+        for (let dir = 0; dir < 4; dir++) {
+            if (this.canMoveInDirection(gridX, gridY, dir) && dir !== (cat.direction + 2) % 4) {
+                possibleDirs.push(dir);
+            }
+        }
+        
+        if (possibleDirs.length === 0) {
+            // No valid directions, try reverse
+            const reverseDir = (cat.direction + 2) % 4;
+            if (this.canMoveInDirection(gridX, gridY, reverseDir)) {
+                cat.direction = reverseDir;
+            }
+            this.moveCat(cat, deltaTime, cat.speed);
+            return;
+        }
+        
+        // Only change direction if aligned to grid
+        if (isAligned) {
+            // Choose direction closest to target
+            let bestDir = possibleDirs[0];
+            let bestDist = Infinity;
+            
+            possibleDirs.forEach(dir => {
+                let testX = gridX;
+                let testY = gridY;
+                
+                if (dir === 0) testX += 1;
+                else if (dir === 1) testY += 1;
+                else if (dir === 2) testX -= 1;
+                else if (dir === 3) testY -= 1;
+                
+                const dist = Math.abs(testX - cat.targetX) + Math.abs(testY - cat.targetY);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestDir = dir;
+                }
+            });
+            
+            cat.direction = bestDir;
+            // Snap to grid when changing direction
+            if (cat.position) {
+                cat.position.x = gridX;
+                cat.position.y = gridY;
+            }
+        }
+        
         this.moveCat(cat, deltaTime, cat.speed);
     }
     
@@ -1249,10 +1439,7 @@ class MousePacmanGame {
         if (isNaN(cat.x) || cat.x === undefined) cat.x = 14;
         if (isNaN(cat.y) || cat.y === undefined) cat.y = 14;
         
-        // Clamp position to valid range
-        cat.position.x = Math.max(0, Math.min(this.mazeCols - 1, cat.position.x));
-        cat.position.y = Math.max(0, Math.min(this.mazeRows - 1, cat.position.y));
-        
+        // Don't clamp position here - allow smooth movement
         const moveSpeed = speed * (deltaTime / 16.67);
         
         // Get current grid position
@@ -1268,12 +1455,30 @@ class MousePacmanGame {
         else if (cat.direction === 2) targetGridX = currentGridX - 1;
         else if (cat.direction === 3) targetGridY = currentGridY - 1;
         
-        // Handle wraparound
-        if (targetGridX < 0) targetGridX = this.mazeCols - 1;
-        if (targetGridX >= this.mazeCols) targetGridX = 0;
+        // Check if we're in a tunnel row (row 14)
+        const tunnelRows = [14];
+        const isTunnelRow = tunnelRows.includes(currentGridY);
+        // Tunnel area is at x <= 5 or x >= 22 on row 14
+        const isInTunnelArea = isTunnelRow && (currentGridX <= 5 || currentGridX >= 22);
         
-        // Check if can move
-        if (this.isValidCell(targetGridX, targetGridY)) {
+        // Handle wraparound
+        let canMove = false;
+        
+        // If in tunnel area and trying to wrap, always allow it
+        if (isInTunnelArea && (targetGridX < 0 || targetGridX >= this.mazeCols)) {
+            canMove = true;
+            // Adjust target for wraparound
+            if (targetGridX < 0) targetGridX = this.mazeCols - 1;
+            if (targetGridX >= this.mazeCols) targetGridX = 0;
+        } else {
+            // Normal movement - handle wraparound first
+            if (targetGridX < 0) targetGridX = this.mazeCols - 1;
+            if (targetGridX >= this.mazeCols) targetGridX = 0;
+            // Then check if can move
+            canMove = this.isValidCell(targetGridX, targetGridY);
+        }
+        
+        if (canMove) {
             let newX = cat.position.x;
             let newY = cat.position.y;
             
@@ -1283,7 +1488,28 @@ class MousePacmanGame {
             else if (cat.direction === 3) newY -= moveSpeed;
             
             // Handle wraparound - check if we've crossed the boundary
-            if (newX < -1) {
+            // For tunnel row 14, check if we're in tunnel area and trying to wrap
+            if (isTunnelRow && (currentGridX <= 5 || currentGridX >= 22)) {
+                // In tunnel area - instant wraparound when crossing boundary
+                if (newX < -0.5) {
+                    // Wrapped left to right
+                    newX = this.mazeCols - 1;
+                    cat.position.x = newX;
+                    cat.x = this.mazeCols - 1;
+                } else if (newX > this.mazeCols - 0.5) {
+                    // Wrapped right to left
+                    newX = 0;
+                    cat.position.x = newX;
+                    cat.x = 0;
+                } else {
+                    // Normal movement
+                    cat.position.x = newX;
+                    let newGridX = Math.round(newX);
+                    if (newGridX < 0) newGridX = this.mazeCols - 1;
+                    if (newGridX >= this.mazeCols) newGridX = 0;
+                    cat.x = newGridX;
+                }
+            } else if (newX < -1) {
                 // Wrapped left to right - calculate proper position on right side
                 const overflow = Math.abs(newX + 1);
                 newX = this.mazeCols - overflow;
@@ -1296,20 +1522,26 @@ class MousePacmanGame {
                 cat.position.x = Math.max(0, Math.min(this.mazeCols - 1, newX));
                 cat.x = Math.max(0, Math.min(this.mazeCols - 1, Math.floor(newX)));
             } else {
-                // Normal movement
-                cat.position.x = Math.max(0, Math.min(this.mazeCols - 1, newX));
+                // Normal movement - allow position to be slightly outside for smooth movement
+                cat.position.x = newX;
                 // Update grid position
-                let newGridX = Math.round(cat.position.x);
+                let newGridX = Math.round(newX);
                 // Handle wraparound for grid position (safety check)
                 if (newGridX < 0) newGridX = this.mazeCols - 1;
                 if (newGridX >= this.mazeCols) newGridX = 0;
-                cat.x = newGridX;
+                // Only clamp if way out of bounds
+                if (newGridX >= 0 && newGridX < this.mazeCols) {
+                    cat.x = newGridX;
+                }
             }
             
             // Update Y position (no wraparound for Y)
-            cat.position.y = Math.max(0, Math.min(this.mazeRows - 1, newY));
-            const newGridY = Math.round(cat.position.y);
-            cat.y = Math.max(0, Math.min(this.mazeRows - 1, newGridY));
+            cat.position.y = newY;
+            let newGridY = Math.round(newY);
+            // Clamp Y to valid range
+            if (newGridY < 0) newGridY = 0;
+            if (newGridY >= this.mazeRows) newGridY = this.mazeRows - 1;
+            cat.y = newGridY;
         } else {
             // Can't move - snap to grid
             cat.position.x = currentGridX;
@@ -1320,9 +1552,15 @@ class MousePacmanGame {
     }
     
     checkCollisions() {
+        // Safety checks
+        if (!this.mouse || !this.cats) return;
+        if (isNaN(this.mouse.x) || isNaN(this.mouse.y)) return;
+        
         // Check mouse-cat collisions
         this.cats.forEach((cat, index) => {
+            if (!cat) return;
             if (cat.inHouse) return;
+            if (isNaN(cat.x) || isNaN(cat.y)) return;
             
             const dist = Math.abs(cat.x - this.mouse.x) + Math.abs(cat.y - this.mouse.y);
             
@@ -1330,7 +1568,9 @@ class MousePacmanGame {
                 if (cat.state === 'frightened') {
                     // Mouse eats cat
                     cat.state = 'eaten';
-                    const points = 200 * Math.pow(2, index); // 200, 400, 800, 1600
+                    if (!this.catsEatenThisPower) this.catsEatenThisPower = 0;
+                    this.catsEatenThisPower++;
+                    const points = 200 * Math.pow(2, this.catsEatenThisPower - 1); // 200, 400, 800, 1600
                     this.score += points;
                     
                     // Particle effect (only in preview mode for now)
