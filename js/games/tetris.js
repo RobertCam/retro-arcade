@@ -69,6 +69,12 @@ class TetrisGame {
         // Ghost piece (preview of where piece will land)
         this.showGhost = true;
         
+        // Line clear animation
+        this.linesClearing = []; // Track lines being cleared
+        this.lineClearAnimationTime = 0;
+        this.lastLineClearData = null; // Store last line clear info for display
+        this.lineClearDisplayTime = 0;
+        
         // Tetromino definitions (I, O, T, S, Z, J, L)
         this.tetrominoes = {
             'I': {
@@ -284,8 +290,9 @@ class TetrisGame {
         const ticker = this.graphics.getTicker();
         if (ticker) {
             // Store the ticker callback so we can remove it later
-            this.tickerCallback = (deltaTime) => {
-                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            // Use performance.now() for reliable absolute time tracking
+            this.tickerCallback = () => {
+                this.gameLoop(performance.now());
             };
             ticker.add(this.tickerCallback);
         } else {
@@ -306,6 +313,12 @@ class TetrisGame {
     
     setupInput() {
         this.keydownHandler = (e) => {
+            // Don't handle input if modals are open
+            const nameEntryModal = document.getElementById('name-entry-modal');
+            if (nameEntryModal && nameEntryModal.classList.contains('active')) {
+                return;
+            }
+            
             // Only handle input if this is the active game
             if (!this.isPreview) {
                 const activeCanvas = document.getElementById('game-canvas');
@@ -490,13 +503,14 @@ class TetrisGame {
     softDrop() {
         if (this.gameState !== 'playing' || !this.currentPiece) return;
         
+        const currentTime = performance.now();
+        
         if (this.movePiece(0, 1)) {
             this.score += 1; // 1 point per cell for soft drop
             this.isLocking = false;
             this.lockTime = 0;
         } else {
             // Piece can't move down - start lock delay
-            const currentTime = performance.now();
             if (!this.isLocking) {
                 this.isLocking = true;
                 this.lockTime = currentTime;
@@ -558,9 +572,8 @@ class TetrisGame {
         this.spawnPiece(this.nextPiece);
         this.nextPiece = this.getRandomPiece();
         
-        // Reset drop timer so new piece can drop almost immediately on next frame
-        // Set to dropInterval in the past so next check will allow drop
-        this.lastDropTime = currentTime - this.dropInterval + 50; // Small buffer to ensure it triggers
+        // Reset drop timer so new piece waits full interval before first drop
+        this.lastDropTime = currentTime;
         
         // Update sprites immediately
         if (!this.isPreview) {
@@ -592,24 +605,67 @@ class TetrisGame {
         
         if (linesToClear.length === 0) return;
         
-        // Score based on lines cleared
+        // Score based on lines cleared (with bonuses for multiple lines)
         const lineScores = {
-            1: 100,
-            2: 300,
-            3: 500,
-            4: 800
+            1: { base: 100, bonus: 0, name: 'Single' },
+            2: { base: 300, bonus: 100, name: 'Double' },
+            3: { base: 500, bonus: 200, name: 'Triple' },
+            4: { base: 800, bonus: 400, name: 'TETRIS!' }
         };
         
-        const baseScore = lineScores[linesToClear.length] || 0;
-        this.score += baseScore * this.level;
+        const scoreData = lineScores[linesToClear.length] || { base: 0, bonus: 0, name: '' };
+        const baseScore = scoreData.base * this.level;
+        const bonusScore = scoreData.bonus * this.level;
+        const totalScore = baseScore + bonusScore;
+        this.score += totalScore;
         this.lines += linesToClear.length;
+        
+        // Store for animation display
+        this.lastLineClearData = {
+            count: linesToClear.length,
+            name: scoreData.name,
+            score: totalScore,
+            bonus: bonusScore
+        };
         
         // Level up every 10 lines
         const newLevel = Math.floor(this.lines / 10) + 1;
-        if (newLevel > this.level) {
+        const levelChanged = newLevel > this.level;
+        if (levelChanged) {
             this.level = newLevel;
             // Increase drop speed (decrease interval)
             this.dropInterval = Math.max(50, 1000 - (this.level - 1) * 50);
+            
+            // Update background for new level
+            if (!this.isPreview) {
+                this.updateBackgroundForLevel();
+            }
+        }
+        
+        // Store lines to clear for animation
+        this.linesClearing = [...linesToClear];
+        this.lineClearAnimationTime = performance.now();
+        this.lineClearDisplayTime = performance.now();
+        
+        // Screen shake and flash effects (intensity based on number of lines)
+        if (this.screenEffects) {
+            const shakeIntensity = Math.min(8 + linesToClear.length * 3, 20);
+            if (typeof this.screenEffects.shake === 'function') {
+                this.screenEffects.shake(shakeIntensity, 8);
+            }
+            
+            // Flash effect - different colors for different line counts
+            const flashColors = {
+                1: '#00ffff',
+                2: '#00ff00',
+                3: '#ffff00',
+                4: '#ff00ff'
+            };
+            const flashColor = flashColors[linesToClear.length] || '#00ffff';
+            if (typeof this.screenEffects.flash === 'function') {
+                // Shorter flash - 8 frames instead of 15, lower intensity
+                this.screenEffects.flash(flashColor, 8, 0.3);
+            }
         }
         
         // Create particles for cleared lines (only in preview/Canvas2D mode)
@@ -621,30 +677,50 @@ class TetrisGame {
                     const pieceColor = this.pieceColors[this.board[row][col]] || '#ffffff';
                     
                     // Create explosion effect for each cell
-                    this.particles.explode(x, y, 5, pieceColor, 'default');
-                    this.particles.sparkBurst(x, y, 3, pieceColor);
+                    this.particles.explode(x, y, 8, pieceColor, 'default');
+                    this.particles.sparkBurst(x, y, 5, pieceColor);
                 }
             });
         }
         
-        // Remove cleared lines
-        linesToClear.forEach(row => {
-            this.board.splice(row, 1);
-            this.board.unshift(new Array(this.cols).fill(0));
-        });
-        
-        // Screen shake effect (intensity based on number of lines)
-        if (this.screenEffects) {
-            const shakeIntensity = Math.min(8 + linesToClear.length * 2, 15);
-            if (typeof this.screenEffects.shake === 'function') {
-                this.screenEffects.shake(shakeIntensity, 5);
-            }
+        // Delay line removal for animation
+        setTimeout(() => {
+            // Remove cleared lines
+            linesToClear.forEach(row => {
+                this.board.splice(row, 1);
+                this.board.unshift(new Array(this.cols).fill(0));
+            });
             
-            // Flash effect for line clear
-            if (typeof this.screenEffects.flash === 'function') {
-                this.screenEffects.flash('#00ffff', 10, 0.3);
+            // Clear animation state
+            this.linesClearing = [];
+            this.lineClearAnimationTime = 0;
+            
+            // Update board after removal
+            if (!this.isPreview) {
+                this.updateBoardSprites();
             }
+        }, 400); // 400ms delay for animation
+    }
+    
+    animateLineClear(linesToClear) {
+        // Animation handled in draw methods - this is just a placeholder
+        // The actual animation happens when drawing the board
+    }
+    
+    updateBackgroundForLevel() {
+        if (this.isPreview || !this.graphics) return;
+        
+        // Remove existing background
+        const bgLayer = this.graphics.getLayer('background');
+        if (!bgLayer) return;
+        
+        const existingBg = bgLayer.children.find(child => child.userData && child.userData.isBackground);
+        if (existingBg) {
+            bgLayer.removeChild(existingBg);
         }
+        
+        // Create new background based on level
+        this.drawBackgroundPixi();
     }
     
     getGhostY() {
@@ -1000,15 +1076,34 @@ class TetrisGame {
         this.graphics.addToLayer(boardBg, 'background');
         this.boardSprites.push(boardBg);
         
-        // Draw placed pieces
+        // Draw placed pieces with line clear animation
+        const currentTime = performance.now();
+        const isAnimating = this.linesClearing.length > 0 && 
+                           this.lineClearAnimationTime > 0 &&
+                           (currentTime - this.lineClearAnimationTime) < 400;
+        const animProgress = isAnimating ? (currentTime - this.lineClearAnimationTime) / 400 : 1.0;
+        
         for (let row = 0; row < this.rows; row++) {
+            const isClearing = this.linesClearing.includes(row);
             for (let col = 0; col < this.cols; col++) {
                 if (this.board[row][col] !== 0) {
                     const pieceType = this.board[row][col];
                     const colorHex = parseInt((this.pieceColors[pieceType] || '#ffffff').replace('#', ''), 16);
-                    const cellSprite = this.createCellSprite(col, row, colorHex, 1.0);
-                    this.graphics.addToLayer(cellSprite, 'foreground');
-                    this.boardSprites.push(cellSprite);
+                    
+                    if (isClearing && isAnimating) {
+                        // Animate clearing cells - fade out and scale up
+                        const alpha = 1.0 - animProgress;
+                        const scale = 1.0 + animProgress * 0.5;
+                        const cellSprite = this.createCellSprite(col, row, colorHex, alpha);
+                        cellSprite.scale.set(scale, scale);
+                        this.graphics.addToLayer(cellSprite, 'foreground');
+                        this.boardSprites.push(cellSprite);
+                    } else if (!isClearing) {
+                        // Normal cells (don't draw clearing cells if animation finished)
+                        const cellSprite = this.createCellSprite(col, row, colorHex, 1.0);
+                        this.graphics.addToLayer(cellSprite, 'foreground');
+                        this.boardSprites.push(cellSprite);
+                    }
                 }
             }
         }
@@ -1219,43 +1314,83 @@ class TetrisGame {
     drawBackgroundPixi() {
         if (this.isPreview || !this.graphics) return;
         
-        // Check if background already exists - don't recreate if it does
         const bgLayer = this.graphics.getLayer('background');
         if (!bgLayer) return;
         
-        // Check if background already exists
+        // Check if background already exists - only skip if level hasn't changed
         const existingBg = bgLayer.children.find(child => child.userData && child.userData.isBackground);
-        if (existingBg) {
-            return; // Background already exists, don't recreate
+        if (existingBg && existingBg.userData.level === this.level) {
+            return; // Background already exists for this level
         }
         
-        // Create background gradient
-        const background = new PIXI.Graphics();
-        background.userData = { isBackground: true };
+        if (existingBg) {
+            bgLayer.removeChild(existingBg);
+        }
         
-        // Create gradient background (simulate with multiple rectangles)
-        const gradientSteps = 20;
+        // Create background based on level
+        const background = new PIXI.Graphics();
+        background.userData = { isBackground: true, level: this.level };
+        
+        // Different background themes based on level ranges
+        const levelTheme = Math.floor(this.level / 5) % 4; // Cycles through 4 themes every 5 levels
+        
+        let color1, color2, color3;
+        switch (levelTheme) {
+            case 0: // Levels 1-4: Classic blue
+                color1 = { r: 0x00, g: 0x11, b: 0x22 };
+                color2 = { r: 0x00, g: 0x1a, b: 0x33 };
+                color3 = { r: 0x00, g: 0x00, b: 0x11 };
+                break;
+            case 1: // Levels 5-9: Purple/cyan
+                color1 = { r: 0x11, g: 0x00, b: 0x33 };
+                color2 = { r: 0x22, g: 0x00, b: 0x44 };
+                color3 = { r: 0x00, g: 0x11, b: 0x22 };
+                break;
+            case 2: // Levels 10-14: Green/teal
+                color1 = { r: 0x00, g: 0x22, b: 0x11 };
+                color2 = { r: 0x00, g: 0x33, b: 0x22 };
+                color3 = { r: 0x00, g: 0x11, b: 0x00 };
+                break;
+            case 3: // Levels 15+: Red/orange
+                color1 = { r: 0x33, g: 0x00, b: 0x00 };
+                color2 = { r: 0x44, g: 0x11, b: 0x00 };
+                color3 = { r: 0x22, g: 0x00, b: 0x00 };
+                break;
+        }
+        
+        // Create gradient background
+        const gradientSteps = 30;
         const stepHeight = this.height / gradientSteps;
         for (let i = 0; i < gradientSteps; i++) {
             const y = i * stepHeight;
-            const alpha = 1.0;
-            // Gradient from #001122 to #000011
-            const r1 = 0x00, g1 = 0x11, b1 = 0x22;
-            const r2 = 0x00, g2 = 0x00, b2 = 0x11;
             const t = i / gradientSteps;
-            const r = Math.floor(r1 + (r2 - r1) * t);
-            const g = Math.floor(g1 + (g2 - g1) * t);
-            const b = Math.floor(b1 + (b2 - b1) * t);
-            const color = (r << 16) | (g << 8) | b;
             
-            background.beginFill(color, alpha);
+            // Interpolate between three colors
+            let r, g, b;
+            if (t < 0.5) {
+                // First half: color1 to color2
+                const t2 = t * 2;
+                r = Math.floor(color1.r + (color2.r - color1.r) * t2);
+                g = Math.floor(color1.g + (color2.g - color1.g) * t2);
+                b = Math.floor(color1.b + (color2.b - color1.b) * t2);
+            } else {
+                // Second half: color2 to color3
+                const t2 = (t - 0.5) * 2;
+                r = Math.floor(color2.r + (color3.r - color2.r) * t2);
+                g = Math.floor(color2.g + (color3.g - color2.g) * t2);
+                b = Math.floor(color2.b + (color3.b - color2.b) * t2);
+            }
+            
+            const color = (r << 16) | (g << 8) | b;
+            background.beginFill(color, 1.0);
             background.drawRect(0, y, this.width, stepHeight + 1);
             background.endFill();
         }
         
-        // Add subtle grid pattern
-        background.lineStyle(1, 0x001122, 0.5);
-        const gridSize = 40;
+        // Add pattern based on level (more complex patterns at higher levels)
+        const patternIntensity = Math.min(this.level / 10, 1.0);
+        background.lineStyle(1, 0x002244, 0.3 * patternIntensity);
+        const gridSize = 40 - (this.level % 5) * 2; // Smaller grid at higher levels
         for (let x = 0; x < this.width; x += gridSize) {
             background.moveTo(x, 0);
             background.lineTo(x, this.height);
@@ -1266,7 +1401,7 @@ class TetrisGame {
         }
         
         // Draw dots at intersections
-        background.beginFill(0x002244, 0.5);
+        background.beginFill(0x003366, 0.4 * patternIntensity);
         for (let x = 0; x < this.width; x += gridSize) {
             for (let y = 0; y < this.height; y += gridSize) {
                 background.drawRect(x - 1, y - 1, 2, 2);
@@ -1286,15 +1421,39 @@ class TetrisGame {
         const uiLayer = this.graphics.getLayer('ui');
         if (!uiLayer) return;
         
+        // Remove existing line clear display sprites first
+        const lineClearSprites = [];
+        uiLayer.children.forEach(child => {
+            if (child.userData && child.userData.isLineClearDisplay) {
+                lineClearSprites.push(child);
+            }
+        });
+        lineClearSprites.forEach(child => uiLayer.removeChild(child));
+        
         // Remove existing game state message sprites (but keep next piece)
         const childrenToRemove = [];
         uiLayer.children.forEach(child => {
-            // Keep next piece sprite and any sprites without userData (might be other UI elements)
-            if (child !== this.nextPieceSprite && child.userData && child.userData.isGameStateMessage) {
+            // Keep next piece sprite
+            if (child !== this.nextPieceSprite && 
+                child.userData && 
+                child.userData.isGameStateMessage) {
                 childrenToRemove.push(child);
             }
         });
         childrenToRemove.forEach(child => uiLayer.removeChild(child));
+        
+        // Draw line clear bonus display (shorter duration)
+        if (this.lastLineClearData && this.lineClearDisplayTime > 0) {
+            const elapsed = performance.now() - this.lineClearDisplayTime;
+            const displayDuration = 800; // 800ms instead of 2000ms
+            if (elapsed < displayDuration) {
+                this.drawLineClearBonusPixi(uiLayer, elapsed / displayDuration);
+            } else {
+                // Clear after timeout
+                this.lastLineClearData = null;
+                this.lineClearDisplayTime = 0;
+            }
+        }
         
         // Game state overlays (always draw fresh)
         if (this.gameState === 'menu') {
@@ -1303,6 +1462,84 @@ class TetrisGame {
             this.drawGameOverPixi(uiLayer);
         } else if (this.gameState === 'paused') {
             this.drawPausedPixi(uiLayer);
+        }
+    }
+    
+    drawLineClearBonusPixi(uiLayer, progress) {
+        if (!this.lastLineClearData) return;
+        
+        const data = this.lastLineClearData;
+        const centerX = this.width / 2;
+        const centerY = this.height / 2;
+        
+        // Calculate animation (quick bounce in, hold, fade out)
+        let scale = 1.0;
+        let alpha = 1.0;
+        if (progress < 0.2) {
+            // Quick bounce in (first 20%)
+            const t = progress / 0.2;
+            scale = Easing.easeOutBounce(t);
+            alpha = t;
+        } else if (progress > 0.6) {
+            // Fade out (last 40%)
+            const t = (progress - 0.6) / 0.4;
+            alpha = 1.0 - t;
+            scale = 1.0 - t * 0.1;
+        }
+        
+        // Main text - better readability with stronger stroke and shadow
+        const textColor = data.count === 4 ? 0xff00ff : (data.count === 3 ? 0xffff00 : (data.count === 2 ? 0x00ff00 : 0x00ffff));
+        const textStyle = new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: data.count === 4 ? 64 : 42,
+            fill: textColor,
+            fontWeight: 'bold',
+            align: 'center',
+            stroke: 0x000000,
+            strokeThickness: 8, // Thicker stroke for better readability
+            dropShadow: true,
+            dropShadowColor: 0x000000,
+            dropShadowBlur: 8,
+            dropShadowAngle: Math.PI / 4,
+            dropShadowDistance: 4
+        });
+        
+        // Position above board, not center screen
+        const nameText = new PIXI.Text(data.name.toUpperCase(), textStyle);
+        nameText.anchor.set(0.5);
+        nameText.x = centerX;
+        nameText.y = this.boardY + 50; // Position above board area
+        nameText.scale.set(scale, scale);
+        nameText.alpha = alpha;
+        nameText.userData = { isLineClearDisplay: true };
+        uiLayer.addChild(nameText);
+        
+        // Score display - only show bonus for multi-line clears
+        if (data.bonus > 0) {
+            const bonusStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 28,
+                fill: 0xffff00,
+                fontWeight: 'bold',
+                align: 'center',
+                stroke: 0x000000,
+                strokeThickness: 4,
+                dropShadow: true,
+                dropShadowColor: 0x000000,
+                dropShadowBlur: 4,
+                dropShadowDistance: 2
+            });
+            
+            const bonusText = new PIXI.Text(`+${Utils.formatScore(data.score)} BONUS!`, bonusStyle);
+            bonusText.anchor.set(0.5);
+            bonusText.x = centerX;
+            bonusText.y = this.boardY + 90;
+            bonusText.scale.set(scale, scale);
+            bonusText.alpha = alpha;
+            bonusText.userData = { isLineClearDisplay: true };
+            uiLayer.addChild(bonusText);
+        } else {
+            // Don't show score for single lines - just the name is enough
         }
     }
     
@@ -1575,13 +1812,15 @@ class TetrisGame {
     update(currentTime) {
         if (this.isPreview || this.isDestroyed) return;
         
-        const deltaTime = currentTime - this.lastTime;
+        // currentTime is already performance.now() in PixiJS mode, or from requestAnimationFrame in preview
+        // Track delta for effects, but use currentTime directly for game logic
+        const deltaTime = currentTime - (this.lastTime || currentTime);
         this.lastTime = currentTime;
         
         if (this.gameState !== 'playing') return;
         
-        // Handle key repeats for movement
-        const now = performance.now();
+        // Use currentTime consistently for all timing
+        const now = currentTime;
         for (let key in this.keys) {
             if (!this.keys[key]) continue;
             
@@ -1609,25 +1848,29 @@ class TetrisGame {
         
         // Handle piece dropping
         if (this.currentPiece) {
-            const elapsed = currentTime - this.lastDropTime;
-            
-            if (elapsed >= this.dropInterval) {
-                // Try to move piece down
-                if (this.movePiece(0, 1)) {
-                    this.lastDropTime = currentTime;
-                    this.isLocking = false;
-                    this.lockTime = 0;
-                } else {
-                    // Piece can't move down - start lock delay
-                    if (!this.isLocking) {
+            // Check lock delay first (happens every frame once locking starts)
+            if (this.isLocking) {
+                if (currentTime - this.lockTime >= this.lockDelay) {
+                    this.lockPiece(currentTime);
+                    // lockPiece spawns new piece and resets isLocking
+                }
+                // While locking, skip automatic drop - piece is waiting to lock
+                // Don't return, continue to update effects
+            } else {
+                // Not locking - handle automatic drop
+                const elapsed = currentTime - this.lastDropTime;
+                if (elapsed >= this.dropInterval) {
+                    // Try to move piece down
+                    if (this.movePiece(0, 1)) {
+                        // Piece moved successfully
+                        this.lastDropTime = currentTime;
+                        this.isLocking = false;
+                        this.lockTime = 0;
+                    } else {
+                        // Piece can't move down - start lock delay
                         this.isLocking = true;
                         this.lockTime = currentTime;
-                    } else {
-                        // Check if lock delay has passed
-                        if (currentTime - this.lockTime >= this.lockDelay) {
-                            this.lockPiece(currentTime);
-                            // lastDropTime is reset inside lockPiece() for the new piece
-                        }
+                        // Lock delay will be checked at top of loop on next frame
                     }
                 }
             }
@@ -1650,7 +1893,12 @@ class TetrisGame {
     gameLoop(currentTime) {
         if (this.isDestroyed) return;
         
-        this.update(currentTime);
+        // Ensure we always have a valid timestamp
+        // requestAnimationFrame provides a DOMHighResTimeStamp
+        // PixiJS ticker we pass performance.now()
+        const timestamp = currentTime || performance.now();
+        
+        this.update(timestamp);
         
         if (this.isPreview) {
             this.draw();
@@ -1706,7 +1954,13 @@ class TetrisGame {
         this.level = 1;
         this.lines = 0;
         this.dropInterval = 1000;
-        this.lastDropTime = performance.now();
+        
+        // Initialize time tracking - always use performance.now() for consistency
+        const now = performance.now();
+        if (!this.lastTime) {
+            this.lastTime = now;
+        }
+        this.lastDropTime = now;
         
         this.initializeBoard();
         this.spawnPiece();
@@ -1714,6 +1968,8 @@ class TetrisGame {
         
         // Update sprites for new game
         if (!this.isPreview) {
+            // Update background for starting level
+            this.drawBackgroundPixi();
             this.updateBoardSprites();
             this.updateNextPieceSprite();
         }

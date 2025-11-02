@@ -749,6 +749,12 @@ class WorkingManGame {
     
     setupInput() {
         this.keydownHandler = (e) => {
+            // Don't handle input if modals are open
+            const nameEntryModal = document.getElementById('name-entry-modal');
+            if (nameEntryModal && nameEntryModal.classList.contains('active')) {
+                return;
+            }
+            
             // Only handle input if this is the active game
             const activeCanvas = document.getElementById('game-canvas');
             if (activeCanvas !== this.canvas) return;
