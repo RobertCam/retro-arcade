@@ -492,6 +492,20 @@ class TetrisGame {
         
         if (this.movePiece(0, 1)) {
             this.score += 1; // 1 point per cell for soft drop
+            this.isLocking = false;
+            this.lockTime = 0;
+        } else {
+            // Piece can't move down - start lock delay
+            const currentTime = performance.now();
+            if (!this.isLocking) {
+                this.isLocking = true;
+                this.lockTime = currentTime;
+            } else {
+                // Check if lock delay has passed
+                if (currentTime - this.lockTime >= this.lockDelay) {
+                    this.lockPiece(currentTime);
+                }
+            }
         }
     }
     
@@ -504,11 +518,16 @@ class TetrisGame {
         }
         
         this.score += dropDistance * 2; // 2 points per cell for hard drop
-        this.lockPiece();
+        this.lockPiece(performance.now());
     }
     
-    lockPiece() {
+    lockPiece(currentTime = null) {
         if (!this.currentPiece) return;
+        
+        // Use provided time or fallback to performance.now()
+        if (!currentTime) {
+            currentTime = performance.now();
+        }
         
         const shape = this.getPieceShape(this.currentPiece, this.currentRotation);
         if (!shape) return;
@@ -530,7 +549,7 @@ class TetrisGame {
         // Check for line clears
         this.clearLines();
         
-        // Update board sprites after locking
+        // Update board sprites after locking and clearing lines
         if (!this.isPreview) {
             this.updateBoardSprites();
         }
@@ -539,9 +558,17 @@ class TetrisGame {
         this.spawnPiece(this.nextPiece);
         this.nextPiece = this.getRandomPiece();
         
-        // Update next piece sprite
+        // Reset drop timer so new piece can drop almost immediately on next frame
+        // Set to dropInterval in the past so next check will allow drop
+        this.lastDropTime = currentTime - this.dropInterval + 50; // Small buffer to ensure it triggers
+        
+        // Update sprites immediately
         if (!this.isPreview) {
             this.updateNextPieceSprite();
+            this.updateCurrentPieceSprite();
+            this.updateGhostPieceSprite();
+            // Force a redraw
+            this.drawPixi();
         }
     }
     
@@ -585,18 +612,20 @@ class TetrisGame {
             this.dropInterval = Math.max(50, 1000 - (this.level - 1) * 50);
         }
         
-        // Create particles for cleared lines
-        linesToClear.forEach(row => {
-            for (let col = 0; col < this.cols; col++) {
-                const x = this.boardX + col * this.cellSize + this.cellSize / 2;
-                const y = this.boardY + row * this.cellSize + this.cellSize / 2;
-                const pieceColor = this.pieceColors[this.board[row][col]] || '#ffffff';
-                
-                // Create explosion effect for each cell
-                this.particles.explode(x, y, 5, pieceColor, 'default');
-                this.particles.sparkBurst(x, y, 3, pieceColor);
-            }
-        });
+        // Create particles for cleared lines (only in preview/Canvas2D mode)
+        if (this.particles) {
+            linesToClear.forEach(row => {
+                for (let col = 0; col < this.cols; col++) {
+                    const x = this.boardX + col * this.cellSize + this.cellSize / 2;
+                    const y = this.boardY + row * this.cellSize + this.cellSize / 2;
+                    const pieceColor = this.pieceColors[this.board[row][col]] || '#ffffff';
+                    
+                    // Create explosion effect for each cell
+                    this.particles.explode(x, y, 5, pieceColor, 'default');
+                    this.particles.sparkBurst(x, y, 3, pieceColor);
+                }
+            });
+        }
         
         // Remove cleared lines
         linesToClear.forEach(row => {
@@ -605,11 +634,17 @@ class TetrisGame {
         });
         
         // Screen shake effect (intensity based on number of lines)
-        const shakeIntensity = Math.min(8 + linesToClear.length * 2, 15);
-        this.screenEffects.shake(shakeIntensity, 5);
-        
-        // Flash effect for line clear
-        this.screenEffects.flash('#00ffff', 10, 0.3);
+        if (this.screenEffects) {
+            const shakeIntensity = Math.min(8 + linesToClear.length * 2, 15);
+            if (typeof this.screenEffects.shake === 'function') {
+                this.screenEffects.shake(shakeIntensity, 5);
+            }
+            
+            // Flash effect for line clear
+            if (typeof this.screenEffects.flash === 'function') {
+                this.screenEffects.flash('#00ffff', 10, 0.3);
+            }
+        }
     }
     
     getGhostY() {
@@ -1590,8 +1625,8 @@ class TetrisGame {
                     } else {
                         // Check if lock delay has passed
                         if (currentTime - this.lockTime >= this.lockDelay) {
-                            this.lockPiece();
-                            this.lastDropTime = currentTime;
+                            this.lockPiece(currentTime);
+                            // lastDropTime is reset inside lockPiece() for the new piece
                         }
                     }
                 }
