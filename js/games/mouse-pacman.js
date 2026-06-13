@@ -219,7 +219,6 @@ class MousePacmanGame {
                 // Tunnel row has: open left side, open right side, and dots in middle (not blocked by walls)
                 if (leftTunnelOpen && rightTunnelOpen && hasDots) {
                     this.tunnelRow = row;
-                    console.log(`[Tunnel] Detected tunnel row: ${row}`);
                     return;
                 }
             }
@@ -393,19 +392,21 @@ class MousePacmanGame {
             return;
         }
         
-        this.finishGraphicsInit();
+        await this.finishGraphicsInit();
     }
     
-    finishGraphicsInit() {
+    async finishGraphicsInit() {
         this.spriteManager = new SpriteManager(this.graphics);
         this.nesEffects = this.graphics.getScreenEffects();
         this.screenEffects = this.nesEffects;
-        
-        this.initSprites();
+        this.gameAssets = new GameAssetHelper(this.spriteManager, 'mouse-pacman');
+        if (this.gameAssets) await this.gameAssets.preloadAll();
+        await this.initSprites();
         this.startGameLoop();
+        if (typeof this.onReady === 'function') this.onReady();
     }
     
-    initSprites() {
+    async initSprites() {
         if (this.isPreview) return;
         this.updateMazeSprites();
         this.updateCheeseSprites();
@@ -538,6 +539,7 @@ class MousePacmanGame {
             this.updateMouseSprite();
             this.updateCatSprites();
         }
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'start');
     }
     
     resetGame() {
@@ -556,7 +558,8 @@ class MousePacmanGame {
         if (this.isDestroyed) return;
         
         this.gameState = 'gameOver';
-        
+        if (typeof audioManager !== 'undefined') audioManager.playSfx('gameOver');
+
         const activeCanvas = document.getElementById('game-canvas');
         if (activeCanvas && activeCanvas === this.canvas) {
             if (highScoreManager.checkHighScore('mouse-pacman', this.score)) {
@@ -994,7 +997,6 @@ class MousePacmanGame {
         
         // Log every 60 frames (once per second at 60fps)
         if (this.debugFrameCount % 60 === 0) {
-            console.log(`[GameLoop] Frame ${this.debugFrameCount}, deltaTime: ${deltaTime.toFixed(2)}ms, state: ${this.gameState}`);
         }
         
         this.animationTime += deltaTime;
@@ -1048,6 +1050,7 @@ class MousePacmanGame {
                 if (this.powerModeTimer >= this.powerModeDuration) {
                     this.powerModeActive = false;
                     this.powerModeTimer = 0;
+                    if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'alert');
                     // Reset cat states
                     this.cats.forEach(cat => {
                         if (cat && cat.state === 'frightened') {
@@ -1136,12 +1139,10 @@ class MousePacmanGame {
                 // In tunnel row - allow wraparound at boundaries
                 if (mouse.direction === 2 && nextX < 0) {
                     // Moving left, going off left edge - wrap to right side
-                    console.log(`[Mouse] Tunnel wrap LEFT: (${mouse.x}, ${mouse.y}) -> (${this.mazeCols - 1}, ${mouse.y})`);
                     nextX = this.mazeCols - 1;
                     nextY = mouse.y; // Keep same row
                 } else if (mouse.direction === 0 && nextX >= this.mazeCols) {
                     // Moving right, going off right edge - wrap to left side
-                    console.log(`[Mouse] Tunnel wrap RIGHT: (${mouse.x}, ${mouse.y}) -> (0, ${mouse.y})`);
                     nextX = 0;
                     nextY = mouse.y; // Keep same row
                 }
@@ -1275,6 +1276,7 @@ class MousePacmanGame {
             if (!this.isPreview) {
                 this.updateCheeseSprites();
             }
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'chomp');
         } else if (cell === 3) { // Power pellet
             this.maze[y][x] = 0;
             this.powerPelletCount--;
@@ -1301,6 +1303,7 @@ class MousePacmanGame {
         this.powerModeActive = true;
         this.powerModeTimer = 0;
         this.catsEatenThisPower = 0; // Reset counter
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'power');
         
         // Make all cats frightened
         if (this.cats) {

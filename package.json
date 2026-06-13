@@ -1,0 +1,10 @@
+{
+  "name": "retro-arcade",
+  "version": "1.0.0",
+  "description": "A lightweight online retro arcade with classic games",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -p 8000",
+    "start": "npm run dev"
+  }
+}

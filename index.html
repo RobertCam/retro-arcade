@@ -9,7 +9,10 @@
 <body>
     <div class="arcade-lobby">
         <header class="lobby-header">
-            <h1>🎮 RETRO ARCADE</h1>
+            <div class="lobby-header-row">
+                <h1>🎮 RETRO ARCADE</h1>
+                <button id="mute-btn" class="mute-btn" aria-label="Mute">🔊</button>
+            </div>
             <p>Choose your game • No quarters needed</p>
         </header>
         
@@ -44,23 +47,6 @@
                     <div class="high-score-display">
                         <div class="top-score">TOP: <span id="jezzball-score">0</span></div>
                         <button class="scores-btn" data-game="jezzball">SCORES</button>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="arcade-cabinet" data-game="micro-racing">
-                <div class="cabinet-marquee">
-                    <div class="marquee-text">HYPER RUNNERS</div>
-                </div>
-                <div class="cabinet-screen">
-                    <div class="game-cover-art">
-                        <img src="images/Hype Runners cover.png" alt="Hyper Runners" class="cover-image">
-                    </div>
-                </div>
-                <div class="cabinet-controls">
-                    <div class="high-score-display">
-                        <div class="top-score">BEST: <span id="micro-racing-score">0</span></div>
-                        <button class="scores-btn" data-game="micro-racing">SCORES</button>
                     </div>
                 </div>
             </div>
@@ -132,6 +118,24 @@
                     </div>
                 </div>
             </div>
+
+            <div class="arcade-cabinet" data-game="space-invaders">
+                <div class="cabinet-marquee">
+                    <div class="marquee-text">STAR SIEGE</div>
+                </div>
+                <div class="cabinet-screen">
+                    <div class="game-cover-art">
+                        <img src="images/star siege cover.png" alt="Star Siege" class="cover-image"
+                             onerror="this.style.display='none';this.parentElement.style.background='linear-gradient(180deg,#000011 0%,#001133 60%,#003344 100%)'">
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="space-invaders-score">0</span></div>
+                        <button class="scores-btn" data-game="space-invaders">SCORES</button>
+                    </div>
+                </div>
+            </div>
         </main>
         
         <footer class="lobby-footer">
@@ -182,17 +186,24 @@
     
     <!-- Graphics system (load in dependency order) -->
     <script src="js/graphics/nes-effects.js"></script>
+    <script src="js/graphics/asset-loader.js"></script>
+    <script src="js/graphics/asset-manifests.js"></script>
     <script src="js/graphics/sprites.js"></script>
+    <script src="js/graphics/game-asset-helper.js"></script>
+    <script src="js/audio/game-sound-profiles.js"></script>
+    <script src="js/audio/audio-manager.js"></script>
+    <script src="js/input/touch-controls.js"></script>
     <script src="js/graphics/themes.js"></script>
     <script src="js/graphics/graphics-core.js"></script>
     
     <script src="js/games/breakout.js"></script>
     <script src="js/games/jezzball.js"></script>
     <script src="js/games/working-man.js"></script>
-    <script src="js/games/micro-racing.js"></script>
     <script src="js/games/tetris.js"></script>
     <script src="js/games/mouse-pacman.js"></script>
+    <script src="js/games/minigolf-holes.js"></script>
     <script src="js/games/minigolf.js"></script>
+    <script src="js/games/space-invaders.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>

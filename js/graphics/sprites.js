@@ -6,6 +6,7 @@ class SpriteManager {
         this.graphics = graphicsCore;
         this.textureCache = {};
         this.atlases = {};
+        this.assetLoader = typeof assetLoader !== 'undefined' ? assetLoader : null;
     }
     
     // Create a simple colored rectangle sprite
@@ -73,6 +74,82 @@ class SpriteManager {
         if (options.rotation !== undefined) sprite.rotation = options.rotation;
         
         return sprite;
+    }
+    
+    // Load a sprite from an asset path with fallback to procedural graphics
+    async loadSpriteFromAsset(assetPath, fallbackFunction = null, options = {}) {
+        if (!this.assetLoader) {
+            console.warn('AssetLoader not available, using fallback');
+            if (fallbackFunction) {
+                return fallbackFunction();
+            }
+            return null;
+        }
+        
+        // Try to load from asset
+        const texture = await this.assetLoader.loadTexture(assetPath, {
+            pixelPerfect: options.pixelPerfect !== false
+        });
+        
+        if (texture) {
+            return this.createSprite(texture, options);
+        }
+        
+        // Fallback to procedural graphics
+        if (fallbackFunction) {
+            console.log(`Asset ${assetPath} not found, using procedural fallback`);
+            return fallbackFunction();
+        }
+        
+        return null;
+    }
+    
+    // Load multiple sprites from asset paths
+    async loadSpritesFromAssets(assetPaths, fallbackFunctions = {}, options = {}) {
+        if (!this.assetLoader) {
+            // Use all fallbacks
+            const sprites = {};
+            for (const path of assetPaths) {
+                if (fallbackFunctions[path]) {
+                    sprites[path] = fallbackFunctions[path]();
+                }
+            }
+            return sprites;
+        }
+        
+        const textures = await this.assetLoader.loadTextures(assetPaths, {
+            pixelPerfect: options.pixelPerfect !== false
+        });
+        
+        const sprites = {};
+        for (const path of assetPaths) {
+            const texture = textures[path];
+            if (texture) {
+                sprites[path] = this.createSprite(texture, options);
+            } else if (fallbackFunctions[path]) {
+                sprites[path] = fallbackFunctions[path]();
+            } else {
+                sprites[path] = null;
+            }
+        }
+        
+        return sprites;
+    }
+    
+    // Get or load a texture (cached)
+    getOrLoadTexture(assetPath) {
+        if (!this.assetLoader) {
+            return null;
+        }
+        
+        // Check cache first
+        const cached = this.assetLoader.getTexture(assetPath);
+        if (cached) {
+            return cached;
+        }
+        
+        // Return null if not loaded (caller should use loadTexture to load it)
+        return null;
     }
     
     // Create animated sprite from texture frames

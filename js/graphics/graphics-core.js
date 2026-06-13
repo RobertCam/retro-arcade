@@ -28,6 +28,9 @@ class GraphicsCore {
         // Screen effects
         this.screenEffects = null;
         
+        // Asset loader reference
+        this.assetLoader = typeof assetLoader !== 'undefined' ? assetLoader : null;
+        
         // Note: init() is async in PixiJS v8, must be called explicitly
         // Don't call it here to avoid issues
     }
@@ -265,6 +268,11 @@ class GraphicsCore {
     // Get screen effects
     getScreenEffects() {
         return this.screenEffects;
+    }
+    
+    // Get asset loader
+    getAssetLoader() {
+        return this.assetLoader;
     }
     
     // Resize the application

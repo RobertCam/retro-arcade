@@ -1,110 +1,136 @@
 // Main application logic
 let currentGameInstance = null;
+let lobbyAmbientStarted = false;
+
+function ensureLobbyAmbient() {
+    if (lobbyAmbientStarted) return;
+    lobbyAmbientStarted = true;
+    if (typeof audioManager !== 'undefined') audioManager.playLobbyAmbient();
+}
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize all game previews
     initBreakout();
     initJezzball();
-    initMicroRacing();
     initWorkingMan();
     initTetris();
     initMousePacman();
     initMinigolf();
-    
-    // Update high score displays
+    initSpaceInvaders();
+
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
-    highScoreManager.updateDisplay('micro-racing');
     highScoreManager.updateDisplay('working-man');
     highScoreManager.updateDisplay('tetris');
     highScoreManager.updateDisplay('mouse-pacman');
     highScoreManager.updateDisplay('minigolf');
-    
-    // Add click handlers for arcade cabinets
+    highScoreManager.updateDisplay('space-invaders');
+
+    setupAudioControls();
+
     const arcadeCabinets = document.querySelectorAll('.arcade-cabinet');
     arcadeCabinets.forEach(cabinet => {
         cabinet.addEventListener('click', function(e) {
-            // Don't trigger if clicking on scores button
-            if (e.target.classList.contains('scores-btn')) {
-                return;
-            }
-            const game = this.dataset.game;
-            openGame(game);
+            if (e.target.classList.contains('scores-btn')) return;
+            audioManager.unlock().then(() => {
+                ensureLobbyAmbient();
+                audioManager.playSfx('click');
+            });
+            openGame(this.dataset.game);
         });
     });
-    
-    // Add click handlers for scores buttons
+
     const scoresButtons = document.querySelectorAll('.scores-btn');
     scoresButtons.forEach(btn => {
         btn.addEventListener('click', function(e) {
-            e.stopPropagation(); // Prevent cabinet click
-            const game = this.dataset.game;
-            showHighScores(game);
+            e.stopPropagation();
+            audioManager.unlock().then(() => {
+                ensureLobbyAmbient();
+                audioManager.playSfx('click');
+            });
+            showHighScores(this.dataset.game);
         });
     });
-    
-    // Add keyboard navigation
+
     document.addEventListener('keydown', function(e) {
         if (e.code === 'Escape') {
-            // Close name entry modal if open
             if (document.getElementById('name-entry-modal').classList.contains('active')) {
                 highScoreManager.skipScore();
-            }
-            // Close high scores modal if open
-            else if (document.getElementById('scores-modal').classList.contains('active')) {
+            } else if (document.getElementById('scores-modal').classList.contains('active')) {
                 closeHighScores();
-            }
-            // Return to lobby if in a game
-            else if (document.querySelector('.game-container')) {
+            } else if (document.querySelector('.game-container')) {
                 closeGame();
             }
         }
-        
-        // Handle Enter key in name entry
+
         if (e.code === 'Enter' && document.getElementById('name-entry-modal').classList.contains('active')) {
             highScoreManager.saveScoreWithName();
         }
     });
-    
-    // Close modal when clicking outside
+
     document.getElementById('scores-modal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeHighScores();
-        }
+        if (e.target === this) closeHighScores();
     });
-    
+
     document.getElementById('name-entry-modal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            highScoreManager.skipScore();
-        }
+        if (e.target === this) highScoreManager.skipScore();
     });
-    
-    // Close button handlers
+
     document.getElementById('close-scores').addEventListener('click', closeHighScores);
     document.getElementById('save-score').addEventListener('click', () => highScoreManager.saveScoreWithName());
     document.getElementById('skip-score').addEventListener('click', () => highScoreManager.skipScore());
-    
-    // Handle initials input navigation
+
     setupInitialsInput();
 });
 
+function setupAudioControls() {
+    const muteBtn = document.getElementById('mute-btn');
+    if (!muteBtn) return;
+
+    const updateLabel = () => {
+        muteBtn.textContent = audioManager.isMuted() ? '🔇' : '🔊';
+        muteBtn.setAttribute('aria-label', audioManager.isMuted() ? 'Unmute' : 'Mute');
+    };
+
+    updateLabel();
+    muteBtn.addEventListener('click', () => {
+        audioManager.unlock().then(() => {
+            ensureLobbyAmbient();
+            audioManager.toggleMute();
+            updateLabel();
+            audioManager.playSfx('click');
+        });
+    });
+}
+
+function showGameLoading() {
+    let overlay = document.getElementById('game-loading-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'game-loading-overlay';
+        overlay.className = 'game-loading-overlay';
+        overlay.innerHTML = '<div class="loading-spinner"></div><p>Loading...</p>';
+        document.body.appendChild(overlay);
+    }
+    overlay.classList.add('active');
+}
+
+function hideGameLoading() {
+    const overlay = document.getElementById('game-loading-overlay');
+    if (overlay) overlay.classList.remove('active');
+}
+
 function openGame(gameName) {
-    // Clean up any existing game first
     if (currentGameInstance && typeof currentGameInstance.cleanup === 'function') {
         currentGameInstance.cleanup();
     }
     currentGameInstance = null;
-    
-    // Close existing game container if present
+
     const existingContainer = document.querySelector('.game-container');
-    if (existingContainer) {
-        existingContainer.remove();
-    }
-    
-    // Hide lobby
+    if (existingContainer) existingContainer.remove();
+
     document.querySelector('.arcade-lobby').style.display = 'none';
-    
-    // Create game container with side panel for stats
+    showGameLoading();
+
     const gameContainer = document.createElement('div');
     gameContainer.className = 'game-container';
     gameContainer.innerHTML = `
@@ -115,9 +141,7 @@ function openGame(gameName) {
         <div class="game-content-wrapper">
             <canvas id="game-canvas" class="game-canvas" width="800" height="600"></canvas>
             <div id="game-stats-panel" class="game-stats-panel">
-                <div class="stats-content">
-                    <!-- Stats will be populated by each game -->
-                </div>
+                <div class="stats-content"></div>
             </div>
         </div>
         <div class="game-controls">
@@ -126,66 +150,72 @@ function openGame(gameName) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(gameContainer);
-    
-    // Add back button handler
     document.getElementById('back-btn').addEventListener('click', closeGame);
-    
-    // Initialize the selected game
+
     initializeGame(gameName);
+
+    if (currentGameInstance) {
+        let loadingHidden = false;
+        const hideOnce = () => {
+            if (loadingHidden) return;
+            loadingHidden = true;
+            hideGameLoading();
+        };
+        currentGameInstance.onReady = hideOnce;
+        if (currentGameInstance.isReady) hideOnce();
+        setTimeout(hideOnce, 8000);
+    } else {
+        hideGameLoading();
+    }
 }
 
 function closeGame() {
-    // Clean up current game instance
     if (currentGameInstance && typeof currentGameInstance.cleanup === 'function') {
         currentGameInstance.cleanup();
     }
     currentGameInstance = null;
-    
-    // Remove game container
+
     const gameContainer = document.querySelector('.game-container');
-    if (gameContainer) {
-        gameContainer.remove();
-    }
-    
-    // Show lobby
+    if (gameContainer) gameContainer.remove();
+
+    hideGameLoading();
     document.querySelector('.arcade-lobby').style.display = 'flex';
-    
-    // Update high scores
+
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
-    highScoreManager.updateDisplay('micro-racing');
     highScoreManager.updateDisplay('working-man');
     highScoreManager.updateDisplay('tetris');
     highScoreManager.updateDisplay('mouse-pacman');
     highScoreManager.updateDisplay('minigolf');
+    highScoreManager.updateDisplay('space-invaders');
 }
 
 function getGameTitle(gameName) {
     const titles = {
         'breakout': 'Neon Shards',
         'jezzball': 'Containment Grid',
-        'racing': 'Hyper Runners',
-        'micro-racing': 'Hyper Runners',
         'working-man': 'Rise of the Rivets',
         'workingMan': 'Rise of the Rivets',
         'tetris': 'Tetra Circuit',
         'mouse-pacman': 'Mousetrap',
-        'minigolf': 'Mini Golf'
+        'minigolf': 'Mini Golf',
+        'space-invaders': 'Star Siege'
     };
     return titles[gameName] || 'Game';
 }
 
 function getGameControls(gameName) {
     const controls = {
-        'breakout': 'Arrow Keys: Move paddle | Space: Start/Pause | P: Pause',
+        'breakout': 'Arrow Keys: Move paddle | Space: Start/Pause | P: Pause | 1-3: Difficulty',
         'jezzball': 'Mouse: Draw lines | Space: Start | R: Reset',
-        'racing': 'Arrow Keys: Steer | Space: Accelerate | R: Reset',
         'workingMan': 'Arrow Keys: Move | Space: Jump | R: Reset',
+        'working-man': 'Arrow Keys: Move | Space: Jump | R: Reset',
         'tetris': 'Arrow Keys: Move/Rotate | Down: Soft Drop | Space: Hard Drop | X: Rotate | P: Pause | R: Reset',
         'mouse-pacman': 'Arrow Keys: Move | Space: Start/Pause | P: Pause | R: Reset',
-        'minigolf': 'Mouse: Drag from ball to aim and set power | Release to shoot | Space: Start | P: Pause'
+        'minigolf': 'Mouse: Drag from ball to aim and set power | Release to shoot | Space: Start | P: Pause',
+        'space-invaders': '← →: Move | Space: Fire | P: Pause | R: Restart'
     };
     return controls[gameName] || 'Check game instructions';
 }
@@ -193,11 +223,9 @@ function getGameControls(gameName) {
 function initializeGame(gameName) {
     const canvas = document.getElementById('game-canvas');
     if (!canvas) return;
-    
-    // Clear any existing game
+
     canvas.innerHTML = '';
-    
-    // Create game instance and store it
+
     switch (gameName) {
         case 'breakout':
             currentGameInstance = new BreakoutGame(canvas);
@@ -205,144 +233,132 @@ function initializeGame(gameName) {
         case 'jezzball':
             currentGameInstance = new JezzballGame(canvas);
             break;
-        case 'micro-racing':
-            console.log('Initializing Micro Racing game');
-            currentGameInstance = new MicroRacingGame(canvas);
-            break;
         case 'working-man':
-            console.log('Initializing Working Man game');
             currentGameInstance = new WorkingManGame(canvas);
             break;
         case 'tetris':
-            console.log('Initializing Tetris game');
             currentGameInstance = new TetrisGame(canvas);
             break;
         case 'mouse-pacman':
-            console.log('Initializing Mouse Pac-Man game');
             currentGameInstance = new MousePacmanGame(canvas);
             break;
         case 'minigolf':
-            console.log('Initializing Mini Golf game');
             currentGameInstance = new MinigolfGame(canvas);
             break;
+        case 'space-invaders':
+            currentGameInstance = new SpaceInvadersGame(canvas);
+            break;
+    }
+
+    if (currentGameInstance && shouldShowTouchControls()) {
+        setupTouchControlsForGame(gameName, currentGameInstance);
     }
 }
 
-function showComingSoon(gameName) {
-    const canvas = document.getElementById('game-canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // Clear canvas
-    ctx.fillStyle = '#000011';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw coming soon message
-    ctx.fillStyle = '#00ffff';
-    ctx.font = '48px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillText('COMING SOON', canvas.width / 2, canvas.height / 2 - 50);
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '24px Courier New';
-    ctx.fillText(gameName, canvas.width / 2, canvas.height / 2);
-    
-    ctx.fillStyle = '#666666';
-    ctx.font = '16px Courier New';
-    ctx.fillText('This game is under development', canvas.width / 2, canvas.height / 2 + 50);
-    
-    ctx.textAlign = 'left';
+function setupTouchControlsForGame(gameName, game) {
+    const wrapper = document.querySelector('.game-content-wrapper');
+    if (!wrapper) return;
+
+    if (gameName === 'breakout') {
+        game.touchControls = new TouchControls(wrapper, 'breakout');
+        game.touchControls.on('onDown', (action) => {
+            if (action === 'left') game.keys['ArrowLeft'] = true;
+            if (action === 'right') game.keys['ArrowRight'] = true;
+            if (action === 'action') {
+                if (game.gameState === 'menu' || game.gameState === 'gameOver') game.startGame();
+                else if (game.waitingForNextTurn) game.startNextTurn();
+                else game.togglePause();
+            }
+        });
+        game.touchControls.on('onUp', (action) => {
+            if (action === 'left') game.keys['ArrowLeft'] = false;
+            if (action === 'right') game.keys['ArrowRight'] = false;
+        });
+    }
+
+    if (gameName === 'tetris') {
+        game.touchControls = new TouchControls(wrapper, 'tetris');
+        game.touchControls.on('onDown', (action) => {
+            if (action === 'left') game.keys['ArrowLeft'] = true;
+            if (action === 'right') game.keys['ArrowRight'] = true;
+            if (action === 'down') game.keys['ArrowDown'] = true;
+            if (action === 'rotate') game.keys['KeyX'] = true;
+            if (action === 'hardDrop') game.hardDrop();
+        });
+        game.touchControls.on('onUp', (action) => {
+            if (action === 'left') game.keys['ArrowLeft'] = false;
+            if (action === 'right') game.keys['ArrowRight'] = false;
+            if (action === 'down') game.keys['ArrowDown'] = false;
+            if (action === 'rotate') game.keys['KeyX'] = false;
+        });
+    }
 }
 
 function showHighScores(gameName) {
     const modal = document.getElementById('scores-modal');
     const title = document.getElementById('scores-game-title');
     const list = document.getElementById('scores-list');
-    
-    // Set title
+
     title.textContent = `${getGameTitle(gameName).toUpperCase()} HIGH SCORES`;
-    
-    // Map game name for score lookup (handle both formats)
-    let scoreKey = gameName === 'working-man' ? 'working-man' : 
-                   (gameName === 'micro-racing' ? 'micro-racing' : gameName);
-    
-    // Handle legacy 'racing' key for micro-racing (backward compatibility)
-    if (gameName === 'micro-racing' && (!highScoreManager.scores[scoreKey] || highScoreManager.scores[scoreKey].length === 0)) {
-        // Check if scores exist under old 'racing' key
-        if (highScoreManager.scores['racing'] && highScoreManager.scores['racing'].length > 0) {
-            scoreKey = 'racing';
-        }
-    }
-    
-    // Get scores
+
+    let scoreKey = gameName;
     const scores = highScoreManager.scores[scoreKey] || [];
-    
-    // Clear list
     list.innerHTML = '';
-    
+
     if (scores.length === 0) {
         list.innerHTML = '<div class="no-scores">No scores yet!<br>Be the first to play!</div>';
     } else {
         scores.forEach((score, index) => {
             const scoreItem = document.createElement('div');
             scoreItem.className = 'score-item';
-            
+
             const rank = document.createElement('div');
             rank.className = 'score-rank';
             rank.textContent = `#${index + 1}`;
-            
+
             const player = document.createElement('div');
             player.className = 'score-player';
             player.textContent = score.player;
-            
+
             const value = document.createElement('div');
             value.className = 'score-value';
-            // All games use score format (points), not time
-            // Ensure score is a number before formatting
             const numericScore = typeof score.score === 'number' ? score.score : parseInt(score.score) || 0;
             value.textContent = Utils.formatScore(numericScore);
-            
+
             scoreItem.appendChild(rank);
             scoreItem.appendChild(player);
             scoreItem.appendChild(value);
             list.appendChild(scoreItem);
         });
     }
-    
-    // Show modal
+
     modal.classList.add('active');
 }
 
 function closeHighScores() {
-    const modal = document.getElementById('scores-modal');
-    modal.classList.remove('active');
+    document.getElementById('scores-modal').classList.remove('active');
 }
 
 function setupInitialsInput() {
     const inputs = ['initial1', 'initial2', 'initial3'];
-    
+
     inputs.forEach((id, index) => {
         const input = document.getElementById(id);
-        
-        input.addEventListener('input', function(e) {
-            // Only allow letters
+
+        input.addEventListener('input', function() {
             this.value = this.value.replace(/[^A-Za-z]/g, '').toUpperCase();
-            
-            // Auto-advance to next input
             if (this.value.length === 1 && index < inputs.length - 1) {
                 document.getElementById(inputs[index + 1]).focus();
             }
         });
-        
+
         input.addEventListener('keydown', function(e) {
-            // Stop propagation to prevent game handlers from intercepting
             e.stopPropagation();
-            
-            // Handle backspace to go to previous input
             if (e.code === 'Backspace' && this.value === '' && index > 0) {
                 document.getElementById(inputs[index - 1]).focus();
             }
         });
-        
+
         input.addEventListener('paste', function(e) {
             e.preventDefault();
             const pasted = e.clipboardData.getData('text').replace(/[^A-Za-z]/g, '').toUpperCase();

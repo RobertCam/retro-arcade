@@ -1,10 +1,7 @@
 // Working Man vs Oligarch - Donkey Kong inspired platformer - PixiJS version
 // Version 2.0 - Fixed ladder exploit and improved level design
-console.log('Working Man game script loaded v2.0');
-
 class WorkingManGame {
     constructor(canvas) {
-        console.log('WorkingManGame constructor called');
         this.canvas = canvas;
         this.width = canvas.width;
         this.height = canvas.height;
@@ -40,9 +37,11 @@ class WorkingManGame {
             height: 32,
             vx: 0,
             vy: 0,
-            baseSpeed: 2,
-            speed: 2,
-            jumpPower: 10,
+            baseSpeed: 1.65,
+            maxSpeed: 1.65,
+            accel: 0.12,
+            speed: 0,
+            jumpPower: 8.5,
             onGround: false,
             onLadder: false,
             climbing: false,
@@ -61,28 +60,42 @@ class WorkingManGame {
             height: 48,
             vx: 0,
             vy: 0,
-            baseSpeed: 0.5,
-            speed: 0.5,
-            direction: -1,
+            baseSpeed: 0.85,
+            speed: 0.85,
+            direction: 1,
             animFrame: 0,
             animTimer: 0,
             throwingTimer: 0,
-            baseThrowingInterval: 180
+            baseThrowingInterval: 2200,
+            throwingInterval: 2200,
+            patrolMin: 50,
+            patrolMax: 550,
+            lastEdge: null,
+            waveThrowsRemaining: 0,
+            waveThrowDelay: 0
         };
         
-        // Retirement goal for the player to reach
+        // Paradise goal — climb to the beach at the top
         this.retirementGoal = {
             x: this.width - 120,
             y: 30,
-            width: 100,
-            height: 20,
+            width: 90,
+            height: 55,
             glowTimer: 0,
-            type: 'retirement'
+            type: 'paradise'
         };
         
+        // Level layout tuning (~75px max jump height; vertical rung spacing)
+        this.platformSpacing = 56;
+        
         // Game physics
-        this.gravity = 0.5;
-        this.friction = 0.8;
+        this.gravity = 0.52;
+        this.friction = 0.82;
+        this.maxFallSpeed = 11;
+        this.coyoteFrames = 0;
+        this.jumpBufferMs = 0;
+        this.jumpCooldownMs = 0;
+        this.wasOnGround = false;
         
         // Level elements
         this.platforms = [];
@@ -162,25 +175,42 @@ class WorkingManGame {
     
     async initGraphics() {
         if (this.isPreview) return;
-        await this.graphics.init();
-        if (!this.graphics || !this.graphics.isInitialized || !this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
-            console.error('Graphics initialization failed, falling back to requestAnimationFrame');
+        try {
+            await this.graphics.init();
+            if (!this.graphics || !this.graphics.isInitialized || !this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
+                console.error('Graphics initialization failed, falling back to requestAnimationFrame');
+                this.gameLoop();
+                if (typeof this.onReady === 'function') this.onReady();
+                return;
+            }
+            await this.finishGraphicsInit();
+        } catch (err) {
+            console.error('Working Man graphics init error:', err);
             this.gameLoop();
-            return;
+            if (typeof this.onReady === 'function') this.onReady();
         }
-        this.finishGraphicsInit();
     }
     
-    finishGraphicsInit() {
+    async finishGraphicsInit() {
         this.spriteManager = new SpriteManager(this.graphics);
         this.nesEffects = this.graphics.getScreenEffects();
         this.screenEffects = this.nesEffects;
-        this.initSprites();
+        this.gameAssets = new GameAssetHelper(this.spriteManager, 'working-man');
+        if (this.gameAssets) await this.gameAssets.preloadAll();
+        await this.initSprites();
         this.startGameLoop();
+        if (this.graphics && typeof this.graphics.start === 'function') {
+            this.graphics.start();
+        }
+        this.drawPixi();
+        if (typeof this.onReady === 'function') this.onReady();
     }
     
-    initSprites() {
+    async initSprites() {
         if (this.isPreview) return;
+        if (this.gameAssets) {
+            this.playerTexture = await this.gameAssets.loadKey('player');
+        }
         this.updatePlatformSprites();
         this.updateLadderSprites();
         this.updateMoneyBagSprites();
@@ -196,9 +226,9 @@ class WorkingManGame {
         
         const ticker = this.graphics.getTicker();
         if (ticker) {
-            // Store the ticker callback so we can remove it later
-            this.tickerCallback = (deltaTime) => {
-                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            this.tickerCallback = (tickerObj) => {
+                const deltaMs = Math.min(Math.max((tickerObj.deltaTime ?? 1) * 16.67, 1), 50);
+                this.gameLoop(deltaMs);
             };
             ticker.add(this.tickerCallback);
         } else {
@@ -243,111 +273,117 @@ class WorkingManGame {
         // Level 10: Complex spiral
         layouts.push(this.createComplexSpiralPattern(10, startY, platformHeight));
         
-        // Levels 11-20: Repeat patterns with variations and increasing difficulty
-        for (let level = 11; level <= 20; level++) {
-            const basePattern = (level - 1) % 10;
-            const variation = Math.floor((level - 1) / 10);
-            
-            // Create variation of existing pattern
-            const baseLayout = layouts[basePattern];
-            const variedLayout = this.varyLayout(baseLayout, level, variation, startY, platformHeight);
-            layouts.push(variedLayout);
+        // Levels 11-15: new hand-authored patterns
+        layouts.push(this.createTightGapsPattern(11, startY, platformHeight));
+        layouts.push(this.createDKClassicPattern(12, startY, platformHeight));
+        layouts.push(this.createStaggeredRungsPattern(13, startY, platformHeight));
+        layouts.push(this.createNarrowBridgePattern(14, startY, platformHeight));
+        layouts.push(this.createFinalClimbPattern(15, startY, platformHeight));
+        
+        // Levels 16-20: variations of new patterns
+        for (let level = 16; level <= 20; level++) {
+            const baseLayout = layouts[10 + (level - 16)];
+            layouts.push(this.varyLayout(baseLayout, level, 1, startY, platformHeight));
         }
         
         return layouts;
     }
     
     // Helper function to add ladder between two platforms
-    addLadder(layout, lowerPlatform, upperPlatform, xPos, extraHeight = 8) {
+    addLadder(layout, lowerPlatform, upperPlatform, xPos, extraHeight = 12) {
         const ladderTop = upperPlatform.y;
         const ladderBottom = lowerPlatform.y;
         const ladderHeight = ladderBottom - ladderTop + extraHeight;
-        
+
         layout.ladders.push({
             x: xPos,
             y: ladderTop,
             width: 16,
-            height: ladderHeight
+            height: Math.max(ladderHeight, 40)
         });
     }
-    
-    // Pattern 1: Simple zigzag - ensures platforms overlap or connect
-    createZigzagPattern(level, startY, platformHeight) {
-        const layout = { platforms: [], ladders: [] };
-        const spacing = 80;
-        const platforms = [
-            { x: 30, width: 350, y: startY }, // Wide bottom platform
-            { x: this.width - 380, width: 350, y: startY - spacing }, // Overlaps with previous
-            { x: 30, width: 350, y: startY - spacing * 2 }, // Overlaps back
-            { x: this.width - 380, width: 350, y: startY - spacing * 3 },
-            { x: 30, width: 350, y: startY - spacing * 4 },
-            { x: this.width - 380, width: 350, y: startY - spacing * 5 },
-            { x: this.width - 300, width: 280, y: startY - spacing * 6 } // Top goal platform
-        ];
-        
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Place ladder in overlap area or at connecting edge
-            let ladderX;
-            const overlap = Math.min(current.x + current.width, next.x + next.width) - Math.max(current.x, next.x);
-            if (overlap > 40) {
-                // Platforms overlap - place ladder in overlap
-                ladderX = (next.x === 30 ? current.x + current.width - 20 : next.x + next.width - 20);
-            } else {
-                // No overlap - place at edge that's closest
-                ladderX = next.x === 30 ? current.x + current.width - 20 : current.x + 4;
-            }
-            this.addLadder(layout, current, next, ladderX);
+
+    /** Place ladder on the edge facing the next platform. */
+    autoLadder(layout, lower, upper) {
+        const lowerCenter = lower.x + lower.width / 2;
+        const upperCenter = upper.x + upper.width / 2;
+        const overlapLeft = Math.max(lower.x, upper.x);
+        const overlapRight = Math.min(lower.x + lower.width, upper.x + upper.width);
+
+        let ladderX;
+        if (overlapRight - overlapLeft > 50) {
+            ladderX = overlapLeft + (overlapRight - overlapLeft) / 2 - 8;
+        } else if (upperCenter >= lowerCenter) {
+            ladderX = lower.x + lower.width - 20;
+        } else {
+            ladderX = lower.x + 8;
         }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
+        ladderX = Math.max(lower.x + 4, Math.min(ladderX, lower.x + lower.width - 20));
+        this.addLadder(layout, lower, upper, ladderX);
+    }
+
+    finalizeLayout(layout, platforms, platformHeight) {
+        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
+        layout.ladders = [];
+        for (let i = 0; i < platforms.length - 1; i++) {
+            this.autoLadder(layout, platforms[i], platforms[i + 1]);
+        }
+        layout.platforms.push({
+            x: 0,
+            y: this.height - 20,
+            width: this.width,
+            height: 20,
+            isGround: true
+        });
         return layout;
     }
-    
-    // Pattern 2: Alternating sides with overlapping platforms
+
+    getTopPlayablePlatform() {
+        const playable = this.platforms.filter(p => p.type !== 'ground');
+        if (!playable.length) return null;
+        return playable.reduce((top, p) => (p.y < top.y ? p : top));
+    }
+
+    placeParadiseGoal(platform) {
+        if (!platform) return;
+        this.retirementGoal.x = platform.x + platform.width / 2 - this.retirementGoal.width / 2;
+        this.retirementGoal.y = platform.y - this.retirementGoal.height - 8;
+    }
+
+    createZigzagPattern(level, startY, platformHeight) {
+        const layout = { platforms: [], ladders: [] };
+        const spacing = this.platformSpacing;
+        const platforms = [
+            { x: 50, width: 260, y: startY },
+            { x: this.width - 310, width: 260, y: startY - spacing },
+            { x: 50, width: 240, y: startY - spacing * 2 },
+            { x: this.width - 290, width: 240, y: startY - spacing * 3 },
+            { x: 50, width: 220, y: startY - spacing * 4 },
+            { x: this.width - 270, width: 220, y: startY - spacing * 5 },
+            { x: this.width / 2 - 110, width: 220, y: startY - spacing * 6 }
+        ];
+        return this.finalizeLayout(layout, platforms, platformHeight);
+    }
+
     createAlternatingSidesPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 70;
+        const spacing = this.platformSpacing;
         const platforms = [
-            { x: 30, width: 300, y: startY }, // Wide
-            { x: this.width / 2 - 150, width: 300, y: startY - spacing }, // Overlaps center
-            { x: 30, width: 300, y: startY - spacing * 2 }, // Overlaps left
-            { x: this.width - 330, width: 300, y: startY - spacing * 3 }, // Overlaps right
-            { x: this.width / 2 - 150, width: 300, y: startY - spacing * 4 }, // Center
-            { x: 30, width: 300, y: startY - spacing * 5 }, // Left
-            { x: this.width - 300, width: 280, y: startY - spacing * 6 } // Top goal
+            { x: 40, width: 280, y: startY },
+            { x: this.width / 2 - 140, width: 280, y: startY - spacing },
+            { x: 40, width: 260, y: startY - spacing * 2 },
+            { x: this.width - 300, width: 260, y: startY - spacing * 3 },
+            { x: this.width / 2 - 130, width: 240, y: startY - spacing * 4 },
+            { x: 40, width: 240, y: startY - spacing * 5 },
+            { x: this.width / 2 - 100, width: 220, y: startY - spacing * 6 }
         ];
-        
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Find overlap area for ladder placement
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            let ladderX;
-            if (overlapRight > overlapLeft + 50) {
-                // Good overlap - place in overlap
-                ladderX = overlapLeft < current.x + current.width / 2 ? overlapRight - 20 : overlapLeft + 4;
-                } else {
-                // Minimal overlap - place at edge
-                ladderX = next.x < current.x + current.width / 2 ? current.x + 4 : current.x + current.width - 20;
-            }
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 3: Spiral with connecting platforms
     createSpiralPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 65;
+        const spacing = this.platformSpacing;
         const platforms = [
             { x: 30, width: 400, y: startY }, // Very wide
             { x: 30, width: 350, y: startY - spacing }, // Overlaps
@@ -358,27 +394,13 @@ class WorkingManGame {
             { x: this.width - 250, width: 230, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Find best ladder position in overlap
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            let ladderX = overlapLeft < overlapRight ? (overlapLeft + overlapRight) / 2 - 8 : current.x + current.width / 2 - 8;
-            ladderX = Math.max(current.x + 4, Math.min(ladderX, current.x + current.width - 20));
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 4: Left-right-left with wide overlapping platforms
     createLeftRightPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 75;
+        const spacing = this.platformSpacing;
         const platforms = [
             { x: 30, width: 380, y: startY }, // Very wide
             { x: this.width - 410, width: 380, y: startY - spacing }, // Overlaps significantly
@@ -389,26 +411,13 @@ class WorkingManGame {
             { x: this.width - 320, width: 300, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Place ladder in overlap area
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            const ladderX = i % 2 === 0 ? overlapRight - 20 : overlapLeft + 4;
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 5: Center with branches - wide platforms that connect
     createCenterBranchesPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 70;
+        const spacing = this.platformSpacing;
         const centerX = this.width / 2 - 150;
         const platforms = [
             { x: 30, width: 300, y: startY }, // Wide left
@@ -420,36 +429,13 @@ class WorkingManGame {
             { x: this.width - 300, width: 280, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            let ladderX;
-            // Find overlap or connection point
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            if (overlapRight > overlapLeft + 40) {
-                // Good overlap
-                ladderX = next.x === centerX ? overlapRight - 20 : overlapLeft + 4;
-            } else if (next.x === centerX) {
-                ladderX = current.x + current.width - 20;
-            } else if (current.x === centerX) {
-                ladderX = next.x === 30 ? centerX + 4 : centerX + 300 - 20;
-            } else {
-                ladderX = current.x + current.width / 2 - 8;
-            }
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 6: Snake with wide overlapping platforms
     createSnakePattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 68;
+        const spacing = this.platformSpacing;
         const platforms = [
             { x: 30, width: 250, y: startY }, // Wide
             { x: 120, width: 250, y: startY - spacing }, // Overlaps
@@ -460,31 +446,13 @@ class WorkingManGame {
             { x: this.width - 280, width: 260, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Find overlap for ladder placement
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            let ladderX;
-            if (overlapRight > overlapLeft + 40) {
-                ladderX = next.x > current.x ? overlapRight - 20 : overlapLeft + 4;
-            } else {
-                ladderX = next.x > current.x ? current.x + current.width - 20 : current.x + 4;
-            }
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 7: Double column with connecting platforms
     createDoubleColumnPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 72;
+        const spacing = this.platformSpacing;
         const leftX = 40;
         const rightX = this.width - 310;
         const platforms = [
@@ -497,27 +465,13 @@ class WorkingManGame {
             { x: this.width - 280, width: 260, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Platforms overlap, place ladder in overlap or at edge
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            const ladderX = current.x === leftX ? (overlapRight > overlapLeft ? overlapRight - 20 : current.x + current.width - 20) : 
-                          (overlapLeft < overlapRight ? overlapLeft + 4 : current.x + 4);
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 8: Mixed with wide connecting platforms
     createMixedPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 66;
+        const spacing = this.platformSpacing;
         const platforms = [
             { x: 30, width: 350, y: startY }, // Very wide
             { x: this.width / 2 - 175, width: 350, y: startY - spacing }, // Overlaps center
@@ -528,31 +482,13 @@ class WorkingManGame {
             { x: this.width - 300, width: 280, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Find overlap
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            let ladderX;
-            if (overlapRight > overlapLeft + 40) {
-                ladderX = next.x < current.x + current.width / 2 ? overlapLeft + 4 : overlapRight - 20;
-            } else {
-                ladderX = next.x < current.x + current.width / 2 ? current.x + 4 : current.x + current.width - 20;
-            }
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 9: Zigzag with gaps but still connecting
     createGapZigzagPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 74;
+        const spacing = this.platformSpacing;
         const platforms = [
             { x: 30, width: 320, y: startY }, // Wide enough to connect
             { x: this.width - 350, width: 320, y: startY - spacing }, // Overlaps
@@ -563,31 +499,13 @@ class WorkingManGame {
             { x: this.width - 280, width: 260, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            const ladderX = i % 2 === 0 ? (overlapRight > overlapLeft ? overlapRight - 20 : current.x + current.width - 20) :
-                          (overlapLeft < overlapRight ? overlapLeft + 4 : current.x + 4);
-            this.addLadder(layout, current, next, ladderX);
-            // Add extra ladder for better connectivity
-            if (i % 3 === 0 && overlapRight > overlapLeft + 60) {
-                const altX = i % 2 === 0 ? overlapLeft + 20 : overlapRight - 36;
-                this.addLadder(layout, current, next, altX);
-            }
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Pattern 10: Complex spiral with connecting platforms
     createComplexSpiralPattern(level, startY, platformHeight) {
         const layout = { platforms: [], ladders: [] };
-        const spacing = 64;
+        const spacing = this.platformSpacing;
         const platforms = [
             { x: 30, width: 380, y: startY }, // Very wide
             { x: 60, width: 340, y: startY - spacing }, // Slightly narrower but still wide
@@ -598,27 +516,7 @@ class WorkingManGame {
             { x: this.width - 260, width: 240, y: startY - spacing * 6 } // Goal
         ];
         
-        layout.platforms = platforms.map(p => ({ ...p, height: platformHeight }));
-        
-        for (let i = 0; i < platforms.length - 1; i++) {
-            const current = platforms[i];
-            const next = platforms[i + 1];
-            // Find overlap for ladder
-            const overlapLeft = Math.max(current.x, next.x);
-            const overlapRight = Math.min(current.x + current.width, next.x + next.width);
-            let ladderX;
-            if (overlapRight > overlapLeft + 40) {
-                ladderX = (overlapLeft + overlapRight) / 2 - 8;
-            } else {
-                ladderX = next.x < current.x + current.width / 3 ? current.x + 4 :
-                         (next.x > current.x + current.width * 2 / 3 ? current.x + current.width - 20 :
-                          current.x + current.width / 2 - 8);
-            }
-            this.addLadder(layout, current, next, ladderX);
-        }
-        
-        layout.platforms.push({ x: 0, y: this.height - 20, width: this.width, height: 20 });
-        return layout;
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     // Vary an existing layout for difficulty scaling
@@ -630,39 +528,96 @@ class WorkingManGame {
         };
         
         // Adjust platform widths based on level difficulty
-        const widthAdjust = Math.min(level * 2, 30);
-        for (let i = 1; i < layout.platforms.length - 1; i++) {
-            const platform = layout.platforms[i];
-            if (platform.y < this.height - 20) {
-                platform.width = Math.max(100, platform.width - widthAdjust);
-            }
+        const widthAdjust = Math.min(level * 2, 24);
+        for (const platform of layout.platforms) {
+            if (platform.isGround || platform.y >= this.height - 25) continue;
+            platform.width = Math.max(120, platform.width - widthAdjust);
         }
         
-        // Adjust spacing slightly for variation
         if (variation > 0) {
-            const spacingOffset = variation * 5;
-            for (let i = 1; i < layout.platforms.length; i++) {
-                layout.platforms[i].y -= spacingOffset;
-            }
-            // Recalculate ladders
+            const playable = layout.platforms.filter(p => !p.isGround && p.y < this.height - 25);
             layout.ladders = [];
-            for (let i = 0; i < layout.platforms.length - 2; i++) {
-                const current = layout.platforms[i];
-                const next = layout.platforms[i + 1];
-                if (next.y < this.height - 20) {
-                    let ladderX = current.x + current.width / 2 - 8;
-                    // Adjust ladder position based on platform alignment
-                    if (next.x < current.x + current.width / 2) {
-                        ladderX = current.x + 4;
-                    } else if (next.x > current.x + current.width / 2) {
-                        ladderX = current.x + current.width - 20;
-                    }
-                    this.addLadder(layout, current, next, ladderX);
-                }
+            for (let i = 0; i < playable.length - 1; i++) {
+                this.autoLadder(layout, playable[i], playable[i + 1]);
             }
         }
         
         return layout;
+    }
+
+    createTightGapsPattern(level, startY, platformHeight) {
+        const layout = { platforms: [], ladders: [] };
+        const spacing = this.platformSpacing;
+        const platforms = [
+            { x: 30, width: 300, y: startY },
+            { x: this.width - 330, width: 280, y: startY - spacing },
+            { x: 30, width: 260, y: startY - spacing * 2 },
+            { x: this.width - 290, width: 260, y: startY - spacing * 3 },
+            { x: 30, width: 240, y: startY - spacing * 4 },
+            { x: this.width - 270, width: 240, y: startY - spacing * 5 },
+            { x: this.width / 2 - 110, width: 220, y: startY - spacing * 6 }
+        ];
+        return this.finalizeLayout(layout, platforms, platformHeight);
+    }
+
+    createDKClassicPattern(level, startY, platformHeight) {
+        const layout = { platforms: [], ladders: [] };
+        const spacing = this.platformSpacing;
+        const platforms = [
+            { x: 40, width: 240, y: startY },
+            { x: this.width - 280, width: 220, y: startY - spacing },
+            { x: 40, width: 200, y: startY - spacing * 2 },
+            { x: this.width - 260, width: 200, y: startY - spacing * 3 },
+            { x: 80, width: 180, y: startY - spacing * 4 },
+            { x: this.width - 260, width: 180, y: startY - spacing * 5 },
+            { x: this.width / 2 - 90, width: 180, y: startY - spacing * 6 }
+        ];
+        return this.finalizeLayout(layout, platforms, platformHeight);
+    }
+
+    createStaggeredRungsPattern(level, startY, platformHeight) {
+        const layout = { platforms: [], ladders: [] };
+        const spacing = this.platformSpacing;
+        const platforms = [
+            { x: 30, width: 340, y: startY },
+            { x: this.width - 370, width: 340, y: startY - spacing },
+            { x: 30, width: 320, y: startY - spacing * 2 },
+            { x: this.width - 350, width: 320, y: startY - spacing * 3 },
+            { x: 30, width: 300, y: startY - spacing * 4 },
+            { x: this.width - 330, width: 300, y: startY - spacing * 5 },
+            { x: this.width / 2 - 130, width: 260, y: startY - spacing * 6 }
+        ];
+        return this.finalizeLayout(layout, platforms, platformHeight);
+    }
+
+    createNarrowBridgePattern(level, startY, platformHeight) {
+        const layout = { platforms: [], ladders: [] };
+        const spacing = this.platformSpacing;
+        const platforms = [
+            { x: 30, width: 280, y: startY },
+            { x: 180, width: 220, y: startY - spacing },
+            { x: 330, width: 220, y: startY - spacing * 2 },
+            { x: 180, width: 220, y: startY - spacing * 3 },
+            { x: 30, width: 240, y: startY - spacing * 4 },
+            { x: 200, width: 240, y: startY - spacing * 5 },
+            { x: this.width / 2 - 110, width: 220, y: startY - spacing * 6 }
+        ];
+        return this.finalizeLayout(layout, platforms, platformHeight);
+    }
+
+    createFinalClimbPattern(level, startY, platformHeight) {
+        const layout = { platforms: [], ladders: [] };
+        const spacing = this.platformSpacing;
+        const platforms = [
+            { x: 30, width: 300, y: startY },
+            { x: 200, width: 280, y: startY - spacing },
+            { x: 30, width: 260, y: startY - spacing * 2 },
+            { x: 200, width: 260, y: startY - spacing * 3 },
+            { x: 30, width: 240, y: startY - spacing * 4 },
+            { x: 200, width: 240, y: startY - spacing * 5 },
+            { x: this.width / 2 - 120, width: 240, y: startY - spacing * 6 }
+        ];
+        return this.finalizeLayout(layout, platforms, platformHeight);
     }
     
     generateLevel() {
@@ -676,14 +631,20 @@ class WorkingManGame {
         const layoutIndex = Math.min(this.level - 1, this.levelLayouts.length - 1);
         const layout = this.levelLayouts[layoutIndex];
         
-        // Copy platforms and ladders
-        this.platforms = layout.platforms.map(p => ({ ...p, type: 'platform' }));
+        // Copy platforms and ladders — tag full-width floor as ground
+        this.platforms = layout.platforms.map((p) => ({
+            ...p,
+            type: (p.isGround || (p.y >= this.height - 25 && p.width >= this.width - 1)) ? 'ground' : 'platform'
+        }));
         this.ladders = layout.ladders.map(l => ({ ...l }));
         
         // Scale difficulty
-        const difficultyMultiplier = 1 + (this.level - 1) * 0.15;
-        this.oligarch.speed = this.oligarch.baseSpeed * difficultyMultiplier;
-        this.oligarch.throwingInterval = Math.max(60, this.oligarch.baseThrowingInterval / difficultyMultiplier);
+        const difficultyMultiplier = 1 + (this.level - 1) * 0.12;
+        this.oligarch.speed = Math.min(1.6, this.oligarch.baseSpeed * difficultyMultiplier);
+        this.oligarch.throwingInterval = Math.max(
+            900,
+            this.oligarch.baseThrowingInterval - (this.level - 1) * 120
+        );
         
         // Spawn power-ups (more in later levels)
         const powerUpCount = Math.min(2 + Math.floor(this.level / 5), 5);
@@ -693,8 +654,9 @@ class WorkingManGame {
             // Find a platform to place power-up on
             let platform;
             let attempts = 0;
+            const playable = this.platforms.filter(p => p.type !== 'ground');
             do {
-                platform = this.platforms[Math.floor(Math.random() * (this.platforms.length - 1))]; // Skip ground
+                platform = playable[Math.floor(Math.random() * playable.length)];
                 attempts++;
             } while ((usedPositions.some(p => Math.abs(p.x - platform.x) < 50) || platform.y > this.height - 100) && attempts < 20);
             
@@ -718,25 +680,40 @@ class WorkingManGame {
             }
         }
         
-        // Position player at bottom
-        this.player.x = 50;
-        this.player.y = this.height - 100;
+        // Position player on the ground floor
+        const ground = this.platforms.find(p => p.type === 'ground');
+        this.player.x = 60;
+        this.player.y = ground ? ground.y - this.player.height : this.height - 100;
         this.player.vx = 0;
         this.player.vy = 0;
-        this.player.onGround = false;
+        this.player.onGround = true;
         this.player.onLadder = false;
         this.player.climbing = false;
         this.player.speed = this.player.baseSpeed;
+        this.jumpCooldownMs = 0;
+        this.jumpBufferMs = 0;
         
-        // Position oligarch at top
-        this.oligarch.x = this.width - 100;
-        this.oligarch.y = 50;
-        this.oligarch.throwingTimer = 0;
-        
-        // Position retirement goal
-        this.retirementGoal.x = this.width - 120;
-        this.retirementGoal.y = 30;
-        this.retirementGoal.glowTimer = 0;
+        const topPlatform = this.getTopPlayablePlatform();
+        this.placeParadiseGoal(topPlatform);
+
+        // Boss patrols the top girder near Paradise
+        if (topPlatform) {
+            this.oligarch.x = topPlatform.x + topPlatform.width / 2 - this.oligarch.width / 2;
+            this.oligarch.y = topPlatform.y - this.oligarch.height - 8;
+            this.oligarch.patrolMin = topPlatform.x + 8;
+            this.oligarch.patrolMax = topPlatform.x + topPlatform.width - this.oligarch.width - 8;
+        } else {
+            this.oligarch.x = this.width - 100;
+            this.oligarch.y = 50;
+            this.oligarch.patrolMin = 50;
+            this.oligarch.patrolMax = this.width - 90;
+        }
+        this.oligarch.direction = 1;
+        this.oligarch.lastEdge = null;
+        this.oligarch.throwingTimer = this.oligarch.throwingInterval * 0.45;
+        this.oligarch.waveThrowsRemaining = 0;
+        this.oligarch.waveThrowDelay = 0;
+        this.moneyBags = [];
         
         // Clear trail
         if (this.playerTrail && typeof this.playerTrail.clear === 'function') {
@@ -769,6 +746,10 @@ class WorkingManGame {
                 this.togglePause();
             }
             
+            if (e.code === 'Space' && this.gameState === 'playing') {
+                this.jumpBufferMs = 140;
+            }
+            
             if (e.code === 'Space' && this.gameState === 'gameOver') {
                 this.restartGame();
             }
@@ -792,6 +773,7 @@ class WorkingManGame {
         this.lives = 3;
         this.level = 1;
         this.generateLevel();
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('working-man', 'start');
     }
     
     restartGame() {
@@ -821,7 +803,7 @@ class WorkingManGame {
         this.updatePowerUpTimers();
         this.updateEffects();
         
-        // Check win condition (reach retirement goal)
+        // Check win condition (reach Paradise at the top)
         if (this.checkCollision(this.player, this.retirementGoal)) {
             this.levelUp();
         }
@@ -840,7 +822,7 @@ class WorkingManGame {
     updatePlayer(deltaTime) {
         // Update power-up effects
         if (this.activePowerUps.speed) {
-            this.player.speed = this.player.baseSpeed * 1.5;
+            this.player.speed = this.player.baseSpeed * 1.25;
         } else {
             this.player.speed = this.player.baseSpeed;
         }
@@ -923,7 +905,7 @@ class WorkingManGame {
                         // Climbing up
                         this.player.onLadder = true;
                         this.player.climbing = true;
-                        this.player.vy = -this.player.speed * 1.2;
+                        this.player.vy = -this.player.speed * 0.95;
                         this.player.vx = 0;
                         this.player.x = ladderCenterX - this.player.width / 2;
                         
@@ -952,7 +934,7 @@ class WorkingManGame {
                         // Climbing down
                         this.player.onLadder = true;
                         this.player.climbing = true;
-                        this.player.vy = this.player.speed * 1.2;
+                        this.player.vy = this.player.speed * 0.95;
                         this.player.vx = 0;
                         this.player.x = ladderCenterX - this.player.width / 2;
                         
@@ -993,42 +975,45 @@ class WorkingManGame {
             }
         }
         
-        // Horizontal movement - ONLY if NOT on ladder
+        const dt = deltaTime / 16.67;
+        
         if (!this.player.onLadder && !this.player.climbing) {
-        if (this.keys['ArrowLeft'] || this.keys['KeyA']) {
-            this.player.vx = -this.player.speed;
-            this.player.direction = -1;
-        } else if (this.keys['ArrowRight'] || this.keys['KeyD']) {
-            this.player.vx = this.player.speed;
-            this.player.direction = 1;
+            const airControl = this.player.onGround ? 1 : 0.32;
+            const targetVx = (this.keys['ArrowLeft'] || this.keys['KeyA']) ? -this.player.speed :
+                (this.keys['ArrowRight'] || this.keys['KeyD']) ? this.player.speed : 0;
+            if (targetVx !== 0) {
+                this.player.vx += (targetVx - this.player.vx) * this.player.accel * dt * 2 * airControl;
+                this.player.direction = targetVx > 0 ? 1 : -1;
+            } else {
+                this.player.vx *= Math.pow(this.friction, dt);
+            }
         } else {
-            this.player.vx *= this.friction;
-        }
-        } else {
-            // On ladder - absolutely no horizontal movement
-                this.player.vx = 0;
+            this.player.vx = 0;
         }
         
-        // Jumping (on ground OR at top of ladder to jump onto platform)
-        if ((this.keys['ArrowUp'] || this.keys['KeyW']) && !this.player.climbing) {
-            if (this.player.onGround) {
-                // Normal ground jump
-                this.player.vy = -this.player.jumpPower;
-                this.player.onGround = false;
-                if (this.particles && typeof this.particles.sparkBurst === 'function') {
-                    this.particles.sparkBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 5, '#00ffff');
-                }
-            } else if (this.player.atLadderTop || (wasOnLadder && !this.player.onLadder && !this.player.onGround)) {
-                // At ladder top OR just exited ladder - allow jump to reach platform
-                this.player.vy = -this.player.jumpPower * 0.85; // Strong jump from ladder top
-                if (this.particles && typeof this.particles.sparkBurst === 'function') {
-                    this.particles.sparkBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 3, '#00ffff');
-                }
-                // Clear ladder state after jumping
-                this.player.onLadder = false;
-                this.player.climbing = false;
-                this.player.atLadderTop = false;
-            }
+        this.jumpCooldownMs = Math.max(0, this.jumpCooldownMs - deltaTime);
+        this.jumpBufferMs = Math.max(0, this.jumpBufferMs - deltaTime);
+        const canJump = this.jumpCooldownMs <= 0;
+        const upJump = (this.keys['ArrowUp'] || this.keys['KeyW']) && !foundLadder && !wasOnLadder;
+        const jumpRequested = this.jumpBufferMs > 0 || upJump;
+        const groundJump = jumpRequested && !this.player.climbing && canJump &&
+            (this.player.onGround || this.coyoteFrames > 0);
+        const ladderJump = (this.keys['ArrowUp'] || this.keys['KeyW']) && !this.player.climbing && canJump &&
+            (this.player.atLadderTop || (wasOnLadder && !this.player.onLadder && !this.player.onGround));
+        if (groundJump) {
+            this.player.vy = -this.player.jumpPower;
+            this.player.onGround = false;
+            this.coyoteFrames = 0;
+            this.jumpBufferMs = 0;
+            this.jumpCooldownMs = 320;
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('working-man', 'jump');
+        } else if (ladderJump) {
+            this.player.vy = -this.player.jumpPower * 0.8;
+            this.player.onLadder = false;
+            this.player.climbing = false;
+            this.player.atLadderTop = false;
+            this.jumpCooldownMs = 360;
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('working-man', 'jump');
         }
         
         // Apply gravity - CRITICAL: always apply if not actively climbing
@@ -1040,17 +1025,25 @@ class WorkingManGame {
         }
         
         if (!this.player.climbing && !this.player.onLadder) {
-            // Not climbing and not on ladder - apply full gravity
-            this.player.vy += this.gravity;
+            this.player.vy += this.gravity * dt;
+            this.player.vy = Math.min(this.player.vy, this.maxFallSpeed);
         } else if (this.player.climbing && !this.player.onLadder) {
-            // Was climbing but no longer on ladder - apply gravity immediately
-            this.player.vy += this.gravity;
+            this.player.vy += this.gravity * dt;
             this.player.climbing = false;
         }
         
-        // Update position
-        this.player.x += this.player.vx;
-        this.player.y += this.player.vy;
+        this.player.x += this.player.vx * dt;
+        this.player.y += this.player.vy * dt;
+        
+        if (this.player.onGround) {
+            this.coyoteFrames = 3;
+        } else if (this.coyoteFrames > 0) {
+            this.coyoteFrames--;
+        }
+        if (this.player.onGround && !this.wasOnGround && typeof audioManager !== 'undefined') {
+            audioManager.playGameSfx('working-man', 'land');
+        }
+        this.wasOnGround = this.player.onGround;
         
         // Keep player on screen
         this.player.x = Math.max(0, Math.min(this.width - this.player.width, this.player.x));
@@ -1084,61 +1077,76 @@ class WorkingManGame {
     }
     
     updateOligarch(deltaTime) {
-        // Simple AI - move back and forth
+        const dt = deltaTime / 16.67;
         this.oligarch.vx = this.oligarch.speed * this.oligarch.direction;
-        this.oligarch.x += this.oligarch.vx;
-        
-        // Reverse direction at edges
-        if (this.oligarch.x <= 50 || this.oligarch.x >= this.width - 90) {
-            this.oligarch.direction *= -1;
+        this.oligarch.x += this.oligarch.vx * dt;
+
+        const minX = this.oligarch.patrolMin ?? 50;
+        const maxX = this.oligarch.patrolMax ?? this.width - 90;
+
+        if (this.oligarch.x <= minX) {
+            this.oligarch.direction = 1;
+            this.oligarch.x = minX;
+            if (this.oligarch.lastEdge !== 'left') {
+                this.oligarch.lastEdge = 'left';
+                this.queueThrow();
+            }
+        } else if (this.oligarch.x >= maxX) {
+            this.oligarch.direction = -1;
+            this.oligarch.x = maxX;
+            if (this.oligarch.lastEdge !== 'right') {
+                this.oligarch.lastEdge = 'right';
+                this.queueThrow();
+            }
         }
-        
-        // Throw money bags
-        this.oligarch.throwingTimer++;
+
+        this.oligarch.throwingTimer += deltaTime;
         if (this.oligarch.throwingTimer >= this.oligarch.throwingInterval) {
-            this.throwMoneyBag();
             this.oligarch.throwingTimer = 0;
+            this.queueThrow();
         }
-        
-        // Animation
+
+        if (this.oligarch.waveThrowDelay > 0) {
+            this.oligarch.waveThrowDelay -= deltaTime;
+            if (this.oligarch.waveThrowDelay <= 0 && this.oligarch.waveThrowsRemaining > 0) {
+                this.throwMoneyBag();
+                this.oligarch.waveThrowsRemaining--;
+                if (this.oligarch.waveThrowsRemaining > 0) {
+                    this.oligarch.waveThrowDelay = 350;
+                }
+            }
+        } else if (this.oligarch.waveThrowsRemaining > 0) {
+            this.throwMoneyBag();
+            this.oligarch.waveThrowsRemaining--;
+            if (this.oligarch.waveThrowsRemaining > 0) {
+                this.oligarch.waveThrowDelay = 350;
+            }
+        }
+
         this.oligarch.animTimer += deltaTime;
         if (this.oligarch.animTimer > 300) {
             this.oligarch.animFrame = (this.oligarch.animFrame + 1) % 2;
             this.oligarch.animTimer = 0;
         }
     }
-    
+
+    queueThrow() {
+        let waveCount = 1;
+        if (this.level >= 10) waveCount = 3;
+        else if (this.level >= 5) waveCount = 2;
+        this.oligarch.waveThrowsRemaining += waveCount;
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('working-man', 'throw');
+    }
+
     throwMoneyBag() {
         const speedMultiplier = 1 + (this.level - 1) * 0.1;
-        
-        // Calculate direction toward player with random variation
-        const playerX = this.player.x + this.player.width / 2;
-        const playerY = this.player.y + this.player.height / 2;
-        const oligarchX = this.oligarch.x + this.oligarch.width / 2;
-        const oligarchY = this.oligarch.y + this.oligarch.height / 2;
-        
-        // Direction toward player
-        const dx = playerX - oligarchX;
-        const dy = Math.abs(playerY - oligarchY); // Always ensure downward component
-        
-        // Random angle variation (30 degrees each side)
-        const baseAngle = Math.atan2(dy, Math.abs(dx));
-        const angleVariation = (Math.random() - 0.5) * (Math.PI / 6); // ±30 degrees
-        const throwAngle = baseAngle + angleVariation;
-        
-        // Ensure angle is downward (between 30 and 150 degrees from horizontal)
-        const minAngle = Math.PI / 6; // 30 degrees
-        const maxAngle = Math.PI * 5 / 6; // 150 degrees
-        const clampedAngle = Math.max(minAngle, Math.min(maxAngle, throwAngle));
-        
-        // Calculate velocity (always downward)
-        const speed = 2 + speedMultiplier;
-        const vx = Math.cos(clampedAngle) * (dx >= 0 ? 1 : -1) * speed;
-        const vy = Math.abs(Math.sin(clampedAngle)) * speed; // Always positive (downward)
-        
+        const rollDir = this.oligarch.direction > 0 ? 1 : -1;
+        const vx = rollDir * (1.4 + speedMultiplier * 0.35);
+        const vy = 2.8 + speedMultiplier * 0.45;
+
         this.moneyBags.push({
-            x: this.oligarch.x + 20,
-            y: this.oligarch.y + 30,
+            x: this.oligarch.x + this.oligarch.width / 2 - 10,
+            y: this.oligarch.y + this.oligarch.height - 4,
             width: 20,
             height: 16,
             vx: vx,
@@ -1156,11 +1164,9 @@ class WorkingManGame {
             const moneyBag = this.moneyBags[i];
             
             // Apply gravity
-            moneyBag.vy += this.gravity * timeScale;
-            
-            // Update position
-            moneyBag.x += moneyBag.vx * timeScale;
-            moneyBag.y += moneyBag.vy * timeScale;
+            moneyBag.vy += this.gravity * timeScale * (deltaTime / 16.67);
+            moneyBag.x += moneyBag.vx * timeScale * (deltaTime / 16.67);
+            moneyBag.y += moneyBag.vy * timeScale * (deltaTime / 16.67);
             moneyBag.rotation += 0.2 * timeScale;
             
             // Remove if off screen
@@ -1177,9 +1183,11 @@ class WorkingManGame {
                     moneyBag.onPlatform = true;
                     
                     // Roll on platform
-                    if (platform.type !== 'ground') {
-                        const speedMultiplier = 1 + (this.level - 1) * 0.1;
-                        moneyBag.vx = 1.5 * speedMultiplier * (moneyBag.vx > 0 ? 1 : -1);
+                    if (platform.type === 'ground') {
+                        moneyBag.vx = 2 * (moneyBag.vx > 0 ? 1 : -1);
+                    } else {
+                        const speedMultiplier = 1 + (this.level - 1) * 0.08;
+                        moneyBag.vx = 1.8 * speedMultiplier * (moneyBag.vx > 0 ? 1 : -1);
                     }
                 }
             }
@@ -1222,8 +1230,8 @@ class WorkingManGame {
                             this.player.onLadder = false;
                             this.player.atLadderTop = false;
                         }
-                    } else if (this.player.vy > 0 || this.player.vy < 0) {
-                        // Normal falling collision
+                    } else {
+                        // Standing on or landing on platform
                         this.player.y = platformTop - this.player.height;
                         this.player.vy = 0;
                         this.player.onGround = true;
@@ -1419,7 +1427,8 @@ class WorkingManGame {
     
     gameOver() {
         this.gameState = 'gameOver';
-        
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('working-man', 'death');
+
         // Check for high score
         if (highScoreManager.checkHighScore('working-man', this.score)) {
             highScoreManager.requestNameEntry('working-man', this.score);
@@ -1427,8 +1436,18 @@ class WorkingManGame {
     }
     
     gameLoop(currentTime = 0) {
-        const deltaTime = currentTime - this.lastTime;
-        this.lastTime = currentTime;
+        let deltaTime;
+        if (this.isPreview) {
+            if (this.lastTime === 0) {
+                this.lastTime = currentTime;
+                deltaTime = 16.67;
+            } else {
+                deltaTime = currentTime - this.lastTime;
+                this.lastTime = currentTime;
+            }
+        } else {
+            deltaTime = currentTime || 16.67;
+        }
         
         this.update(deltaTime);
         
@@ -1436,9 +1455,7 @@ class WorkingManGame {
             this.draw();
             requestAnimationFrame((time) => this.gameLoop(time));
         } else {
-            // PixiJS handles rendering automatically, but we still need to update our draw calls
             this.drawPixi();
-            // Ticker handles loop, so don't call requestAnimationFrame
         }
     }
     
@@ -1485,6 +1502,12 @@ class WorkingManGame {
             
             // Draw player
             this.drawPlayerPixi(fgLayer);
+        } else if (this.gameState === 'menu') {
+            this.drawPlatformsPixi(fgLayer);
+            this.drawLaddersPixi(fgLayer);
+            this.drawRetirementGoalPixi(fgLayer);
+            this.drawPlayerPixi(fgLayer);
+            this.drawOligarchPixi(fgLayer);
         }
         
         // Draw UI
@@ -1754,79 +1777,84 @@ class WorkingManGame {
     }
     
     drawRetirementGoalPixi(layer) {
-        this.retirementGoal.glowTimer += 0.1;
-        const glowIntensity = Math.sin(this.retirementGoal.glowTimer) * 0.3 + 0.7;
-        
+        this.retirementGoal.glowTimer += 0.08;
+        const pulse = Math.sin(this.retirementGoal.glowTimer) * 0.25 + 0.75;
+        const g = this.retirementGoal;
+
         const goalContainer = new PIXI.Container();
-        goalContainer.x = this.retirementGoal.x;
-        goalContainer.y = this.retirementGoal.y;
-        
-        // Glow effect
+        goalContainer.x = g.x;
+        goalContainer.y = g.y;
+
         const glow = new PIXI.Graphics();
-        glow.beginFill(0x00ff00, glowIntensity * 0.3);
-        glow.drawRect(-10, -10, this.retirementGoal.width + 20, this.retirementGoal.height + 30);
+        glow.beginFill(0x00ddff, pulse * 0.25);
+        glow.drawEllipse(g.width / 2, g.height / 2 + 4, g.width * 0.75, g.height * 0.55);
         glow.endFill();
         goalContainer.addChild(glow);
-        
-        const house = new PIXI.Graphics();
-        
-        // House body
-        house.beginFill(0x8B4513, glowIntensity);
-        house.drawRect(0, 0, this.retirementGoal.width, this.retirementGoal.height);
-        house.endFill();
-        
-        // Roof
-        house.beginFill(0x8B0000, glowIntensity);
-        house.drawPolygon([
-            -10, 0,
-            this.retirementGoal.width/2, -20,
-            this.retirementGoal.width + 10, 0
-        ]);
-        house.endFill();
-        
-        // Door
-        house.beginFill(0x654321, glowIntensity);
-        house.drawRect(30, 5, 20, 15);
-        house.endFill();
-        
-        // Windows
-        house.beginFill(0x87CEEB, glowIntensity);
-        house.drawRect(10, 8, 12, 8);
-        house.drawRect(60, 8, 12, 8);
-        house.endFill();
-        
-        // Chimney
-        house.beginFill(0x696969, glowIntensity);
-        house.drawRect(70, -15, 8, 15);
-        house.endFill();
-        
-        // Smoke particles
-        for (let i = 0; i < 3; i++) {
-            const smokeY = -20 - (Math.sin(this.retirementGoal.glowTimer + i) * 5);
-            house.beginFill(0xC0C0C0, glowIntensity * 0.7);
-            house.drawCircle(74, smokeY, 2 + i);
-            house.endFill();
+
+        const art = new PIXI.Graphics();
+
+        // Sand bar
+        art.beginFill(0xf4d03f, pulse);
+        art.drawEllipse(g.width / 2, g.height - 6, g.width * 0.55, 14);
+        art.endFill();
+
+        // Water line
+        art.lineStyle(2, 0x00ccff, 0.8);
+        art.moveTo(0, g.height - 2);
+        art.lineTo(g.width, g.height - 2);
+
+        // Palm trunk
+        art.beginFill(0x8B5A2B, pulse);
+        art.drawRect(g.width / 2 + 18, g.height - 38, 8, 32);
+        art.endFill();
+
+        // Palm fronds
+        art.beginFill(0x22aa44, pulse);
+        for (let i = 0; i < 5; i++) {
+            const angle = -Math.PI / 2 + (i - 2) * 0.45;
+            const fx = g.width / 2 + 22 + Math.cos(angle) * 28;
+            const fy = g.height - 38 + Math.sin(angle) * 16;
+            art.drawPolygon([
+                g.width / 2 + 22, g.height - 38,
+                fx, fy,
+                g.width / 2 + 22 + Math.cos(angle + 0.2) * 12, g.height - 36 + Math.sin(angle + 0.2) * 8
+            ]);
         }
-        
-        // Border
-        house.lineStyle(2, 0x8B4513, 1);
-        house.drawRect(0, 0, this.retirementGoal.width, this.retirementGoal.height);
-        
-        goalContainer.addChild(house);
-        
-        // "RETIREMENT" text
-        const text = new PIXI.Text('RETIREMENT', new PIXI.TextStyle({
+        art.endFill();
+
+        // Tiki sign
+        art.beginFill(0xdeb887, pulse);
+        art.drawRect(8, g.height - 32, 36, 26);
+        art.endFill();
+        art.beginFill(0xcd853f, pulse);
+        art.drawPolygon([8, g.height - 32, 26, g.height - 40, 44, g.height - 32]);
+        art.endFill();
+
+        goalContainer.addChild(art);
+
+        const title = new PIXI.Text('PARADISE', new PIXI.TextStyle({
             fontFamily: 'Courier New',
-            fontSize: 12,
+            fontSize: 11,
             fill: 0xffffff,
             fontWeight: 'bold',
             align: 'center'
         }));
-        text.anchor.set(0.5);
-        text.x = this.retirementGoal.width/2;
-        text.y = -5;
-        goalContainer.addChild(text);
-        
+        title.anchor.set(0.5);
+        title.x = 26;
+        title.y = g.height - 22;
+        goalContainer.addChild(title);
+
+        const subtitle = new PIXI.Text('☼ ESCAPE ☼', new PIXI.TextStyle({
+            fontFamily: 'Courier New',
+            fontSize: 9,
+            fill: 0xffee88,
+            align: 'center'
+        }));
+        subtitle.anchor.set(0.5);
+        subtitle.x = g.width / 2;
+        subtitle.y = -6;
+        goalContainer.addChild(subtitle);
+
         layer.addChild(goalContainer);
     }
     
@@ -1935,8 +1963,17 @@ class WorkingManGame {
             return; // Don't draw when flashing
         }
         
-        // Draw trail first
         this.drawPlayerTrailPixi(layer);
+
+        if (this.playerTexture) {
+            const sprite = new PIXI.Sprite(this.playerTexture);
+            sprite.x = this.player.x;
+            sprite.y = this.player.y;
+            sprite.width = this.player.width;
+            sprite.height = this.player.height;
+            layer.addChild(sprite);
+            return;
+        }
         
         const playerContainer = new PIXI.Container();
         playerContainer.x = this.player.x;
@@ -2076,10 +2113,10 @@ class WorkingManGame {
                 align: 'center'
             });
             const instructions = [
-                'Reach retirement at the top!',
-                'Arrow Keys: Move & Climb',
-                'Space: Jump',
-                'Collect money bags for points',
+                'Climb the girders to Paradise!',
+                'The oligarch rains money bags — dodge them',
+                'Arrow Keys: Move | Up/Down: Ladders | Space/Up: Jump',
+                'Reach the beach at the TOP',
                 'Press SPACE to start'
             ];
             instructions.forEach((text, i) => {
@@ -2185,7 +2222,7 @@ class WorkingManGame {
                 fill: 0xffffff,
                 align: 'center'
             });
-            const messageText = new PIXI.Text('You reached retirement!', infoStyle);
+            const messageText = new PIXI.Text('Welcome to Paradise!', infoStyle);
             messageText.anchor.set(0.5);
             messageText.x = this.width / 2;
             messageText.y = this.height / 2 - 10;
@@ -2394,62 +2431,33 @@ class WorkingManGame {
     }
     
     drawRetirementGoal() {
-        // Animate glow effect
-        this.retirementGoal.glowTimer += 0.1;
-        const glowIntensity = Math.sin(this.retirementGoal.glowTimer) * 0.3 + 0.7;
-        
-        // Draw glow
-        this.ctx.shadowColor = '#00ff00';
-        this.ctx.shadowBlur = 20 * glowIntensity;
-        
-        // Draw retirement cottage/house
-        this.ctx.fillStyle = `rgba(139, 69, 19, ${glowIntensity})`;
-        this.ctx.fillRect(this.retirementGoal.x, this.retirementGoal.y, this.retirementGoal.width, this.retirementGoal.height);
-        
-        // Draw roof
-        this.ctx.fillStyle = `rgba(139, 0, 0, ${glowIntensity})`;
+        this.retirementGoal.glowTimer += 0.08;
+        const pulse = Math.sin(this.retirementGoal.glowTimer) * 0.25 + 0.75;
+        const g = this.retirementGoal;
+        const cx = g.x + g.width / 2;
+
+        this.ctx.save();
+        this.ctx.shadowColor = '#f4d03f';
+        this.ctx.shadowBlur = 14 * pulse;
+        this.ctx.globalAlpha = pulse;
+        this.ctx.fillStyle = '#f4d03f';
         this.ctx.beginPath();
-        this.ctx.moveTo(this.retirementGoal.x - 10, this.retirementGoal.y);
-        this.ctx.lineTo(this.retirementGoal.x + this.retirementGoal.width/2, this.retirementGoal.y - 20);
-        this.ctx.lineTo(this.retirementGoal.x + this.retirementGoal.width + 10, this.retirementGoal.y);
-        this.ctx.closePath();
+        this.ctx.ellipse(cx, g.y + g.height - 6, g.width * 0.45, 12, 0, 0, Math.PI * 2);
         this.ctx.fill();
-        
-        // Draw door
-        this.ctx.fillStyle = `rgba(101, 67, 33, ${glowIntensity})`;
-        this.ctx.fillRect(this.retirementGoal.x + 30, this.retirementGoal.y + 5, 20, 15);
-        
-        // Draw windows
-        this.ctx.fillStyle = `rgba(135, 206, 235, ${glowIntensity})`;
-        this.ctx.fillRect(this.retirementGoal.x + 10, this.retirementGoal.y + 8, 12, 8);
-        this.ctx.fillRect(this.retirementGoal.x + 60, this.retirementGoal.y + 8, 12, 8);
-        
-        // Draw chimney
-        this.ctx.fillStyle = `rgba(105, 105, 105, ${glowIntensity})`;
-        this.ctx.fillRect(this.retirementGoal.x + 70, this.retirementGoal.y - 15, 8, 15);
-        
-        // Draw smoke particles
-        for (let i = 0; i < 3; i++) {
-            const smokeY = this.retirementGoal.y - 20 - (Math.sin(this.retirementGoal.glowTimer + i) * 5);
-        this.ctx.fillStyle = `rgba(192, 192, 192, ${glowIntensity * 0.7})`;
-        this.ctx.beginPath();
-            this.ctx.arc(this.retirementGoal.x + 74, smokeY, 2 + i, 0, Math.PI * 2);
-        this.ctx.fill();
-        }
-        
+        this.ctx.fillStyle = '#22aa44';
+        this.ctx.fillRect(cx + 10, g.y + g.height - 36, 6, 28);
+        this.ctx.fillStyle = '#deb887';
+        this.ctx.fillRect(g.x + 8, g.y + g.height - 30, 32, 22);
         this.ctx.shadowBlur = 0;
-        
-        // Draw border
-        this.ctx.strokeStyle = '#8B4513';
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(this.retirementGoal.x, this.retirementGoal.y, this.retirementGoal.width, this.retirementGoal.height);
-        
-        // Draw "RETIREMENT" text
+        this.ctx.globalAlpha = 1;
         this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = 'bold 12px Courier New';
+        this.ctx.font = 'bold 10px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('RETIREMENT', this.retirementGoal.x + this.retirementGoal.width/2, this.retirementGoal.y - 5);
+        this.ctx.fillText('PARADISE', g.x + 24, g.y + g.height - 14);
+        this.ctx.fillStyle = '#ffee88';
+        this.ctx.fillText('☼ ESCAPE ☼', cx, g.y - 4);
         this.ctx.textAlign = 'left';
+        this.ctx.restore();
     }
     
     drawOligarch() {
@@ -2654,13 +2662,15 @@ class WorkingManGame {
         this.ctx.fillStyle = '#000000';
         this.ctx.fillRect(this.width - 78, 20, 16, 12);
         
-        // Draw retirement goal
-        this.ctx.fillStyle = '#ffff00';
-        this.ctx.fillRect(this.width - 100, 15, 60, 12);
+        // Draw Paradise goal at top
+        this.ctx.fillStyle = '#f4d03f';
+        this.ctx.fillRect(this.width - 100, 12, 60, 14);
+        this.ctx.fillStyle = '#22aa44';
+        this.ctx.fillRect(this.width - 72, 8, 4, 10);
         this.ctx.fillStyle = '#ffffff';
         this.ctx.font = '8px Courier New';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('GOAL', this.width - 70, 23);
+        this.ctx.fillText('PARADISE', this.width - 70, 22);
         this.ctx.textAlign = 'left';
         
         // Draw title overlay
@@ -2682,9 +2692,9 @@ class WorkingManGame {
             this.ctx.font = '24px Courier New';
             this.ctx.textAlign = 'center';
             this.ctx.fillText('RISE OF THE RIVETS', this.width / 2, this.height / 2 - 50);
-            this.ctx.fillText('Climb to reach the Oligarch!', this.width / 2, this.height / 2 - 20);
+            this.ctx.fillText('Climb the girders to Paradise!', this.width / 2, this.height / 2 - 20);
             this.ctx.font = '16px Courier New';
-            this.ctx.fillText('Arrow Keys: Move | Up: Jump/Climb Up | Down: Climb Down', this.width / 2, this.height / 2 + 10);
+            this.ctx.fillText('Arrow Keys: Move | Up/Down: Ladders | Space/Up: Jump', this.width / 2, this.height / 2 + 10);
             this.ctx.fillText('Collect power-ups to help your journey!', this.width / 2, this.height / 2 + 35);
             this.ctx.fillText('Press SPACE to start', this.width / 2, this.height / 2 + 60);
         } else if (this.gameState === 'paused') {
@@ -2707,7 +2717,7 @@ class WorkingManGame {
             this.ctx.textAlign = 'center';
             this.ctx.fillText('CONGRATULATIONS!', this.width / 2, this.height / 2 - 40);
             this.ctx.font = '20px Courier New';
-            this.ctx.fillText('You reached retirement!', this.width / 2, this.height / 2 - 10);
+            this.ctx.fillText('Welcome to Paradise!', this.width / 2, this.height / 2 - 10);
             this.ctx.fillText(`Final Score: ${Utils.formatScore(this.score)}`, this.width / 2, this.height / 2 + 25);
             this.ctx.fillText('Press SPACE to play again', this.width / 2, this.height / 2 + 55);
         }

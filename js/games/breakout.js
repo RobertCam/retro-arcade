@@ -30,6 +30,15 @@ class BreakoutGame {
         this.score = 0;
         this.lives = 3;
         this.level = 1;
+        this.difficulty = 'normal'; // easy, normal, hard
+        this.difficultySettings = {
+            easy: { baseSpeed: 1.5, paddleSpeed: 7 },
+            normal: { baseSpeed: 2, paddleSpeed: 8 },
+            hard: { baseSpeed: 3, paddleSpeed: 9 }
+        };
+        this.gameAssets = null;
+        this.touchControls = null;
+        this.onReady = null;
         
         // Game objects
         this.paddle = {
@@ -151,31 +160,31 @@ class BreakoutGame {
             return;
         }
         
-        // Proceed with initialization
-        this.finishGraphicsInit();
+        await this.finishGraphicsInit();
     }
     
-    finishGraphicsInit() {
-        // Now create sprite manager and get effects
+    async finishGraphicsInit() {
         this.spriteManager = new SpriteManager(this.graphics);
         this.nesEffects = this.graphics.getScreenEffects();
-        
-        // Initialize theme manager
+        this.gameAssets = new GameAssetHelper(this.spriteManager, 'breakout');
+
         this.themeManager = new ThemeManager(this.graphics);
         this.currentTheme = null;
-        
-        // Initialize brick break animations
+
         this.initBrickAnimations();
-        
-        // Apply initial theme
         this.applyTheme();
-        
-        // Initialize sprites
-        this.initSprites();
-        
-        // Update brick sprites now that sprite manager is ready
+
+        if (this.gameAssets) {
+            await this.gameAssets.preloadAll();
+        }
+        await this.initSprites();
+
         this.updateBrickSprites();
-        
+
+        if (typeof this.onReady === 'function') {
+            this.onReady();
+        }
+
         // Start game loop
         this.startGameLoop();
     }
@@ -242,50 +251,72 @@ class BreakoutGame {
         }
     }
     
-    // Initialize PixiJS sprites
-    initSprites() {
-        if (this.isPreview) return;
-        
-        // Create paddle sprite with enhanced graphics
+    createProceduralPaddle() {
         const paddleColor = parseInt(this.paddle.color.replace('#', ''), 16);
-        this.paddleSprite = new PIXI.Graphics();
-        this.paddleSprite.beginFill(paddleColor);
-        this.paddleSprite.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
-        this.paddleSprite.endFill();
-        
-        // Add glow effect
-        this.paddleSprite.lineStyle(2, this.lightenColor(paddleColor, 0.4), 0.8);
-        this.paddleSprite.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
-        
-        this.paddleSprite.x = this.paddle.x;
-        this.paddleSprite.y = this.paddle.y;
-        this.graphics.addToLayer(this.paddleSprite, 'foreground');
-        
-        // Create ball sprite with glow effect
+        const graphics = new PIXI.Graphics();
+        graphics.beginFill(paddleColor);
+        graphics.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
+        graphics.endFill();
+        graphics.lineStyle(2, this.lightenColor(paddleColor, 0.4), 0.8);
+        graphics.drawRoundedRect(0, 0, this.paddle.width, this.paddle.height, 3);
+        return graphics;
+    }
+
+    createProceduralBall() {
         const ballColor = parseInt(this.ball.color.replace('#', ''), 16);
-        this.ballSprite = new PIXI.Graphics();
-        
-        // Outer glow
-        this.ballSprite.beginFill(ballColor, 0.5);
-        this.ballSprite.drawCircle(this.ball.radius, this.ball.radius, this.ball.radius + 2);
-        this.ballSprite.endFill();
-        
-        // Main ball
-        this.ballSprite.beginFill(ballColor);
-        this.ballSprite.drawCircle(this.ball.radius, this.ball.radius, this.ball.radius);
-        this.ballSprite.endFill();
-        
-        // Highlight
-        this.ballSprite.beginFill(this.lightenColor(ballColor, 0.5), 0.6);
-        this.ballSprite.drawCircle(this.ball.radius - 2, this.ball.radius - 2, this.ball.radius * 0.4);
-        this.ballSprite.endFill();
-        
-        this.ballSprite.x = this.ball.x - this.ball.radius;
-        this.ballSprite.y = this.ball.y - this.ball.radius;
-        this.graphics.addToLayer(this.ballSprite, 'foreground');
-        
-        // Brick sprites will be created in createLevel()
+        const graphics = new PIXI.Graphics();
+        graphics.beginFill(ballColor, 0.5);
+        graphics.drawCircle(this.ball.radius, this.ball.radius, this.ball.radius + 2);
+        graphics.endFill();
+        graphics.beginFill(ballColor);
+        graphics.drawCircle(this.ball.radius, this.ball.radius, this.ball.radius);
+        graphics.endFill();
+        graphics.beginFill(this.lightenColor(ballColor, 0.5), 0.6);
+        graphics.drawCircle(this.ball.radius - 2, this.ball.radius - 2, this.ball.radius * 0.4);
+        graphics.endFill();
+        return graphics;
+    }
+
+    async initSprites() {
+        if (this.isPreview) return;
+
+        this.paddleSprite = await this.gameAssets.loadSprite('paddle', () => this.createProceduralPaddle());
+        if (this.paddleSprite) {
+            this.paddleSprite.x = this.paddle.x;
+            this.paddleSprite.y = this.paddle.y;
+            this.graphics.addToLayer(this.paddleSprite, 'foreground');
+        }
+
+        this.ballSprite = await this.gameAssets.loadSprite('ball', () => this.createProceduralBall());
+        if (this.ballSprite) {
+            this.ballSprite.x = this.ball.x - this.ball.radius;
+            this.ballSprite.y = this.ball.y - this.ball.radius;
+            this.graphics.addToLayer(this.ballSprite, 'foreground');
+        }
+
         this.updateBrickSprites();
+    }
+
+    applyDifficulty() {
+        const settings = this.difficultySettings[this.difficulty] || this.difficultySettings.normal;
+        this.ball.baseSpeed = settings.baseSpeed;
+        this.paddle.speed = settings.paddleSpeed;
+        if (this.gameState === 'playing') {
+            const speed = Math.hypot(this.ball.vx, this.ball.vy);
+            if (speed > 0) {
+                const angle = Math.atan2(this.ball.vy, this.ball.vx);
+                this.ball.vx = Math.cos(angle) * settings.baseSpeed;
+                this.ball.vy = Math.sin(angle) * settings.baseSpeed;
+            }
+        }
+    }
+
+    setDifficulty(level) {
+        const levels = ['easy', 'normal', 'hard'];
+        if (levels.includes(level)) {
+            this.difficulty = level;
+            this.applyDifficulty();
+        }
     }
     
     // Update brick sprites when level changes
@@ -733,6 +764,12 @@ class BreakoutGame {
             if (e.code === 'KeyP' && (this.gameState === 'playing' || this.gameState === 'paused')) {
                 this.togglePause();
             }
+
+            if (this.gameState === 'menu') {
+                if (e.code === 'Digit1') this.setDifficulty('easy');
+                if (e.code === 'Digit2') this.setDifficulty('normal');
+                if (e.code === 'Digit3') this.setDifficulty('hard');
+            }
         };
         
         this.keyupHandler = (e) => {
@@ -851,10 +888,14 @@ class BreakoutGame {
         this.hasProcessedBallLoss = false;
         this.paddle.width = this.paddle.baseWidth;
         this.paddle.x = this.width / 2 - this.paddle.width / 2;
-        this.balls = []; // Clear any remaining balls from previous game
-        this.generateBackgroundPattern(); // Generate initial background pattern
+        this.balls = [];
+        this.applyDifficulty();
+        this.generateBackgroundPattern();
         this.resetBall();
         this.createLevel();
+        if (typeof audioManager !== 'undefined') {
+            audioManager.playGameSfx('breakout', 'start');
+        }
     }
     
     togglePause() {
@@ -935,7 +976,6 @@ class BreakoutGame {
         
         // Check for game over condition (lives exhausted)
         if (this.gameState === 'playing' && this.lives <= 0) {
-            console.log('Game over detected in update loop! Lives:', this.lives);
             this.gameOver();
         }
         
@@ -1004,6 +1044,8 @@ class BreakoutGame {
             
             this.ball.y = this.paddle.y - this.ball.radius;
             
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('breakout', 'hit');
+            
             if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
                 this.screenEffects.shake(5, 8);
             }
@@ -1031,7 +1073,8 @@ class BreakoutGame {
                 
                 brick.destroyed = true;
                 this.score += 10;
-                
+                if (typeof audioManager !== 'undefined') audioManager.playGameSfx('breakout', 'break');
+
                 // Animate brick breaking if using PixiJS
                 if (brick.sprite && !this.isPreview) {
                     this.animateBrickBreak(brick);
@@ -1109,7 +1152,7 @@ class BreakoutGame {
                 powerUp.x > this.paddle.x &&
                 powerUp.x < this.paddle.x + this.paddle.width) {
                 
-                console.log('Power-up collected:', powerUp.type);
+                if (typeof audioManager !== 'undefined') audioManager.playGameSfx('breakout', 'powerup');
                 this.activatePowerUp(powerUp.type);
                 
                 // Remove power-up sprite if using PixiJS
@@ -1282,7 +1325,6 @@ class BreakoutGame {
         
         // Check if main ball fell off screen (don't process if game is over or already processed)
         if (this.ball.y > this.height && this.gameState === 'playing' && !this.hasProcessedBallLoss) {
-            console.log('Main ball lost! Lives before:', this.lives);
             this.hasProcessedBallLoss = true; // Prevent multiple detections
             
             // Enhanced ball explosion effect
@@ -1319,8 +1361,6 @@ class BreakoutGame {
             
             // Lose a life - with enhanced visual feedback
             this.lives--;
-            console.log('Lives after:', this.lives);
-            
             // Enhanced visual feedback for life loss
             if (this.screenEffects) {
                 if (typeof this.screenEffects.flash === 'function') {
@@ -1340,7 +1380,6 @@ class BreakoutGame {
             this.showLifeLostMessage();
             
             if (this.lives <= 0) {
-                console.log('Game over triggered!');
                 this.gameOver();
             } else {
                 // Wait for next turn - don't reset ball yet, wait for space press
@@ -1921,8 +1960,8 @@ class BreakoutGame {
     }
     
     gameOver() {
-        console.log('gameOver() called! Score:', this.score, 'Lives:', this.lives);
         this.gameState = 'gameOver';
+        if (typeof audioManager !== 'undefined') audioManager.playSfx('gameOver');
         this.waitingForNextTurn = false; // Clear waiting state to prevent confusion
         this.hasProcessedBallLoss = false; // Reset flag
         
@@ -1933,7 +1972,6 @@ class BreakoutGame {
         
         // Check if this is a high score (only at complete game end)
         if (highScoreManager.checkHighScore('breakout', this.score)) {
-            console.log('High score detected! Requesting name entry...');
             highScoreManager.requestNameEntry('breakout', this.score);
         }
         // No need to save non-qualifying scores
@@ -1955,11 +1993,8 @@ class BreakoutGame {
     }
     
     activatePowerUp(type) {
-        console.log('Activating power-up:', type);
         switch (type) {
             case 'MULTI_BALL':
-                console.log('Multi-ball activated!');
-                
                 // Create glow effect - Canvas 2D or PixiJS
                 if (this.isPreview && this.particles) {
                     // Canvas 2D particle effect
@@ -1984,7 +2019,6 @@ class BreakoutGame {
                 break;
                 
             case 'LARGE_PADDLE':
-                console.log('Large paddle activated! Lives:', this.lives);
                 // Make paddle larger until end of turn with tweening
                 this.paddlePowerUpActive = true;
                 const oldWidth = this.paddle.width;
@@ -2010,9 +2044,7 @@ class BreakoutGame {
                 break;
                 
             case 'EXTRA_LIFE':
-                console.log('Extra life activated! Lives before:', this.lives);
                 this.lives++;
-                console.log('Lives after:', this.lives);
                 break;
         }
     }
@@ -2388,10 +2420,22 @@ class BreakoutGame {
             });
             const startText = new PIXI.Text('Press SPACE to Start', startStyle);
             startText.x = this.width / 2;
-            startText.y = this.height / 2 + 20;
+            startText.y = this.height / 2 + 10;
             startText.anchor.set(0.5);
             startText.userData = { isGameStateMessage: true };
             uiLayer.addChild(startText);
+
+            const diffStyle = new PIXI.TextStyle({
+                fontFamily: 'Courier New',
+                fontSize: 16,
+                fill: 0xaaaaaa
+            });
+            const diffText = new PIXI.Text(`Difficulty: ${this.difficulty.toUpperCase()} (1/2/3)`, diffStyle);
+            diffText.x = this.width / 2;
+            diffText.y = this.height / 2 + 40;
+            diffText.anchor.set(0.5);
+            diffText.userData = { isGameStateMessage: true };
+            uiLayer.addChild(diffText);
         } else if (this.gameState === 'paused') {
             const pauseStyle = new PIXI.TextStyle({
                 fontFamily: 'Courier New',
@@ -2595,6 +2639,10 @@ class BreakoutGame {
         }
         if (this.keyupHandler) {
             document.removeEventListener('keyup', this.keyupHandler);
+        }
+        if (this.touchControls) {
+            this.touchControls.destroy();
+            this.touchControls = null;
         }
     }
 }

@@ -86,18 +86,21 @@ class JezzballGame {
             requestAnimationFrame(this.gameLoop);
             return;
         }
-        this.finishGraphicsInit();
+        await this.finishGraphicsInit();
     }
     
-    finishGraphicsInit() {
+    async finishGraphicsInit() {
         this.spriteManager = new SpriteManager(this.graphics);
         this.nesEffects = this.graphics.getScreenEffects();
         this.screenEffects = this.nesEffects;
-        this.initSprites();
+        this.gameAssets = new GameAssetHelper(this.spriteManager, 'jezzball');
+        if (this.gameAssets) await this.gameAssets.preloadAll();
+        await this.initSprites();
         this.startGameLoop();
+        if (typeof this.onReady === 'function') this.onReady();
     }
     
-    initSprites() {
+    async initSprites() {
         if (this.isPreview) return;
         this.updateBallSprites();
         this.updateWallSprites();
@@ -352,6 +355,7 @@ class JezzballGame {
     
     startWall(x, y) {
         this.isDrawing = true;
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'draw');
         this.currentWall = {
             clickX: x, // Store original click point
             clickY: y,
@@ -370,6 +374,7 @@ class JezzballGame {
         this.level = 1;
         this.generateBackgroundPattern();
         this.createLevel();
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'start');
     }
     
     togglePause() {
@@ -384,7 +389,11 @@ class JezzballGame {
         if (this.gameState !== 'playing') return;
         
         // Update timer
+        const prevSecond = Math.ceil(this.timeLeft);
         this.timeLeft -= deltaTime / 1000;
+        if (this.timeLeft > 0 && Math.ceil(this.timeLeft) < prevSecond) {
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'tick');
+        }
         if (this.timeLeft <= 0) {
             this.timeUp();
             return;
@@ -574,6 +583,7 @@ class JezzballGame {
         
         // Calculate and fill captured areas
         this.calculateCapturedAreas();
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'capture');
         
         this.currentWall = null;
         this.isDrawing = false;
@@ -730,7 +740,6 @@ class JezzballGame {
         
         // Debug: log enclosure check for first few areas
         if (x < 100 && y < 100) {
-            console.log(`Area ${x},${y}: walls L:${wallsLeft} R:${wallsRight} U:${wallsUp} D:${wallsDown}`);
         }
         
         // Area is captured if it has walls on all sides
@@ -1168,7 +1177,6 @@ class JezzballGame {
         }
         
         if (this.walls.length > 0) {
-            console.log(`Updated ${this.walls.length} wall sprites, fgLayer has ${fgLayer.children.length} children`);
         }
     }
     

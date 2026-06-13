@@ -99,7 +99,7 @@ class NESEffects {
         // CRT filter
         this.crtEnabled = true;
         this.crtScanlineIntensity = 0.15;
-        this.crtNoiseIntensity = 0.05;
+        this.crtNoiseIntensity = 0;
         this.crtCurvature = 0.05;
         this.crtVignetteIntensity = 0.3;
         
@@ -218,25 +218,10 @@ class NESEffects {
             this.crtOverlay.endFill();
         }
         
-        // Draw subtle noise
-        if (this.crtNoiseIntensity > 0) {
-            const noiseData = this.createNoiseTexture(width, height, this.crtNoiseIntensity);
-            // Note: For better performance, we'd use a shader, but for now use a simple approach
-            this.crtOverlay.beginFill(0xFFFFFF, this.crtNoiseIntensity * 0.3);
-            for (let i = 0; i < 50; i++) {
-                const x = Math.random() * width;
-                const y = Math.random() * height;
-                this.crtOverlay.drawRect(x, y, 1, 1);
-            }
-            this.crtOverlay.endFill();
-        }
-        
         // Draw vignette
         if (this.crtVignetteIntensity > 0) {
-            const gradient = this.createVignetteGradient(width, height);
             this.crtOverlay.beginFill(0x000000, this.crtVignetteIntensity);
             this.crtOverlay.drawRect(0, 0, width, height);
-            // Vignette would be better with a shader, but this is a simple approximation
             this.crtOverlay.endFill();
         }
         
@@ -248,18 +233,14 @@ class NESEffects {
         }
     }
     
-    // Create noise texture (simplified)
     createNoiseTexture(width, height, intensity) {
-        // This would ideally use a shader, but for compatibility we'll use a simple approach
-        return null; // Placeholder
-    }
-    
-    // Create vignette gradient (simplified)
-    createVignetteGradient(width, height) {
-        // Placeholder - would use shader for proper vignette
         return null;
     }
-    
+
+    createVignetteGradient(width, height) {
+        return null;
+    }
+
     // Get cycled color from NES palette
     getCycledColor(index = 0) {
         const cycleIndex = (index + Math.floor(this.colorCycleOffset * 10)) % NES_PALETTE.length;

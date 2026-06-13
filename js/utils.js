@@ -54,7 +54,8 @@ class Utils {
     
     // Format score with commas
     static formatScore(score) {
-        return score.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        const n = Number.isFinite(score) ? Math.max(0, Math.floor(score)) : 0;
+        return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
 }
 
@@ -74,7 +75,8 @@ class HighScoreManager {
             workingMan: [],
             tetris: [],
             'mouse-pacman': [],
-            minigolf: []
+            minigolf: [],
+            'space-invaders': []
         };
     }
     
@@ -203,9 +205,7 @@ class HighScoreManager {
     }
     
     updateDisplay(game) {
-        // Handle legacy 'racing' game name for HTML element
-        const elementId = game === 'micro-racing' ? 'micro-racing-score' : `${game}-score`;
-        const element = document.getElementById(elementId);
+        const element = document.getElementById(`${game}-score`);
         if (element) {
             const topScore = this.getTopScore(game);
             // All games use score format (points), not time

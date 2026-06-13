@@ -259,25 +259,24 @@ class TetrisGame {
             this.animationFrameId = requestAnimationFrame(this.gameLoop);
             return;
         }
-        this.finishGraphicsInit();
+        await this.finishGraphicsInit();
     }
     
-    finishGraphicsInit() {
+    async finishGraphicsInit() {
         this.spriteManager = new SpriteManager(this.graphics);
         this.nesEffects = this.graphics.getScreenEffects();
         this.screenEffects = this.nesEffects;
-        this.initSprites();
-        
-        // Draw initial frame before starting loop
+        this.gameAssets = new GameAssetHelper(this.spriteManager, 'tetris');
+        if (this.gameAssets) await this.gameAssets.preloadAll();
+        await this.initSprites();
+
         this.drawPixi();
-        
         this.startGameLoop();
+        if (typeof this.onReady === 'function') this.onReady();
     }
     
-    initSprites() {
+    async initSprites() {
         if (this.isPreview) return;
-        // Don't update board sprites yet - wait until game starts
-        // Just ensure background is drawn
         this.drawBackgroundPixi();
     }
     
@@ -560,6 +559,8 @@ class TetrisGame {
             }
         }
         
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('tetris', 'lock');
+        
         // Check for line clears
         this.clearLines();
         
@@ -604,7 +605,9 @@ class TetrisGame {
         }
         
         if (linesToClear.length === 0) return;
-        
+
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('tetris', 'lineClear');
+
         // Score based on lines cleared (with bonuses for multiple lines)
         const lineScores = {
             1: { base: 100, bonus: 0, name: 'Single' },
@@ -633,6 +636,7 @@ class TetrisGame {
         const levelChanged = newLevel > this.level;
         if (levelChanged) {
             this.level = newLevel;
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('tetris', 'levelUp');
             // Increase drop speed (decrease interval)
             this.dropInterval = Math.max(50, 1000 - (this.level - 1) * 50);
             
@@ -1946,6 +1950,10 @@ class TetrisGame {
         if (this.keyupHandler) {
             document.removeEventListener('keyup', this.keyupHandler);
         }
+        if (this.touchControls) {
+            this.touchControls.destroy();
+            this.touchControls = null;
+        }
     }
     
     startGame() {
@@ -1973,6 +1981,7 @@ class TetrisGame {
             this.updateBoardSprites();
             this.updateNextPieceSprite();
         }
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('tetris', 'start');
     }
     
     togglePause() {
@@ -1993,7 +2002,8 @@ class TetrisGame {
         if (this.isDestroyed) return;
         
         this.gameState = 'gameOver';
-        
+        if (typeof audioManager !== 'undefined') audioManager.playSfx('gameOver');
+
         // Only check for high score if this is still the active game
         const activeCanvas = document.getElementById('game-canvas');
         if (activeCanvas && activeCanvas === this.canvas) {

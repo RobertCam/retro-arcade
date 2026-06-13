@@ -14,6 +14,8 @@ class MinigolfGame {
             this.graphics = null;
             this.spriteManager = null;
             this.nesEffects = null;
+            this.gameAssets = null;
+            this.onReady = null;
         } else {
             // For main game, use PixiJS
             this.ctx = null;
@@ -57,7 +59,7 @@ class MinigolfGame {
         this.friction = 0.98;
         this.bounceCoefficient = 0.75;
         this.minVelocity = 0.1; // Below this, ball is considered stopped
-        this.maxSinkSpeed = 1.5; // Maximum velocity to sink ball (lower = easier to go too fast)
+        this.maxSinkSpeed = 1.2; // Maximum velocity to sink ball (lower = harder to drop)
         
         // Current hole data
         this.currentHoleData = null;
@@ -103,6 +105,13 @@ class MinigolfGame {
         }
     }
     
+    async initSpriteTextures() {
+        if (!this.gameAssets) return;
+        this.ballTexture = await this.gameAssets.loadKey('ball');
+        this.holeTexture = await this.gameAssets.loadKey('hole');
+        this.flagTexture = await this.gameAssets.loadKey('flag');
+    }
+
     // Initialize SNES-style textures for grass, sand, water, walls, etc.
     initTextures() {
         if (this.isPreview) return; // Skip textures for preview
@@ -345,1131 +354,7 @@ class MinigolfGame {
     }
     
     createHole(holeNumber, margin, courseWidth, courseHeight) {
-        const hole = {
-            startX: margin + 100,
-            startY: margin + courseHeight / 2,
-            holeX: margin + courseWidth - 100,
-            holeY: margin + courseHeight / 2,
-            holeRadius: 12,
-            par: 3,
-            walls: [],
-            obstacles: []
-        };
-        
-        const pathWidth = 55; // Width of the playing path (narrower = more difficult)
-        const wallOffset = 30; // Distance from edge for walls
-        
-        // Minimum clearance buffers - much larger for starting position to allow shooting in all directions
-        const BALL_CLEARANCE = this.ball.radius + 40; // Ball radius (8) + large safety buffer for shooting range
-        const HOLE_CLEARANCE = hole.holeRadius + 20; // Hole radius (12) + safety buffer
-        
-        // Helper function to ensure wall doesn't get too close to a point
-        const ensureClearance = (wallX1, wallY1, wallX2, wallY2, pointX, pointY, minDist) => {
-            const dx = wallX2 - wallX1;
-            const dy = wallY2 - wallY1;
-            const length = Math.sqrt(dx * dx + dy * dy);
-            if (length === 0) return [wallX1, wallY1, wallX2, wallY2];
-            
-            // Find closest point on line segment to the point
-            const t = Math.max(0, Math.min(1, ((pointX - wallX1) * dx + (pointY - wallY1) * dy) / (length * length)));
-            const closestX = wallX1 + t * dx;
-            const closestY = wallY1 + t * dy;
-            const dist = Math.sqrt((pointX - closestX) ** 2 + (pointY - closestY) ** 2);
-            
-            if (dist < minDist) {
-                // Wall too close - adjust by moving the segment away
-                const perpX = -(dy / length);
-                const perpY = (dx / length);
-                const moveDist = minDist - dist;
-                const moveX = perpX * moveDist;
-                const moveY = perpY * moveDist;
-                
-                // Determine which side to move (away from the point)
-                const dot = (closestX - pointX) * perpX + (closestY - pointY) * perpY;
-                const direction = dot > 0 ? 1 : -1;
-                
-                return [
-                    wallX1 + moveX * direction,
-                    wallY1 + moveY * direction,
-                    wallX2 + moveX * direction,
-                    wallY2 + moveY * direction
-                ];
-            }
-            return [wallX1, wallY1, wallX2, wallY2];
-        };
-        
-        // Helper to apply clearance to all walls for a point
-        const applyClearance = (walls, pointX, pointY, minDist) => {
-            return walls.map(wall => {
-                const [x1, y1, x2, y2] = wall;
-                return ensureClearance(x1, y1, x2, y2, pointX, pointY, minDist);
-            });
-        };
-        
-        // Create 18 distinct minigolf holes according to specifications
-        switch(holeNumber) {
-            case 0: // Hole 1: Straight line, None, Par 2
-                hole.startX = margin + 50;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 50;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 2;
-                
-                // Simple straight path - narrow corridor
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Narrow horizontal corridor
-                    [margin + 50, margin + courseHeight / 2 - pathWidth / 2, margin + courseWidth - 50, margin + courseHeight / 2 - pathWidth / 2],
-                    [margin + 50, margin + courseHeight / 2 + pathWidth / 2, margin + courseWidth - 50, margin + courseHeight / 2 + pathWidth / 2],
-                    // Block top and bottom edges
-                    [margin + 50, margin, margin + courseWidth - 50, margin + courseHeight / 2 - pathWidth / 2],
-                    [margin + 50, margin + courseHeight / 2 + pathWidth / 2, margin + courseWidth - 50, margin + courseHeight]
-                ];
-                break;
-                
-            case 1: // Hole 2: Soft curve, 1 sand trap, Par 2
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight - 70;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + 70;
-                hole.par = 2;
-                
-                // Soft curved path - constrained to single path
-                // Start bottom-left, hole top-right, curve in middle
-                const curveX = margin + courseWidth * 0.65;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Curved barrier - creates path around center
-                    [curveX - pathWidth / 2, margin + 100, curveX - pathWidth / 2, margin + courseHeight * 0.5],
-                    [curveX + pathWidth / 2, margin + courseHeight * 0.5, curveX + pathWidth / 2, margin + courseHeight - 100],
-                    // Block left edge - but leave opening at bottom for start
-                    [margin + 60, margin, margin + 60, margin + courseHeight * 0.4],
-                    [margin + 60, margin + courseHeight * 0.6, margin + 60, margin + courseHeight - 70], // Gap at bottom for start
-                    // Block right edge - but leave opening at top for hole
-                    [margin + courseWidth - 60, margin + 70, margin + courseWidth - 60, margin + courseHeight * 0.4], // Gap at top for hole
-                    [margin + courseWidth - 60, margin + courseHeight * 0.6, margin + courseWidth - 60, margin + courseHeight]
-                ];
-                
-                // Sand trap - directly in the path before curve
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.4,
-                    y: margin + courseHeight * 0.65,
-                    radius: 40
-                });
-                break;
-                
-            case 2: // Hole 3: Zig-zag, Brick bumpers, Par 3
-                hole.startX = margin + 50;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 50;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 3;
-                
-                const zig1X = margin + courseWidth * 0.3;
-                const zig2X = margin + courseWidth * 0.6;
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Zigzag barriers - single constrained path
-                    [zig1X - pathWidth / 2, margin + 70, zig1X - pathWidth / 2, margin + courseHeight - 70],
-                    [zig1X + pathWidth / 2, margin, zig1X + pathWidth / 2, margin + courseHeight - 100],
-                    [zig2X - pathWidth / 2, margin + 100, zig2X - pathWidth / 2, margin + courseHeight],
-                    [zig2X + pathWidth / 2, margin + 70, zig2X + pathWidth / 2, margin + courseHeight - 70],
-                    // Block top and bottom edges
-                    [margin + 50, margin, margin + courseWidth - 50, margin],
-                    [margin + 50, margin + courseHeight, margin + courseWidth - 50, margin + courseHeight],
-                    [margin + 50, margin, margin + 50, margin + 70],
-                    [margin + 50, margin + courseHeight - 70, margin + 50, margin + courseHeight],
-                    [margin + courseWidth - 50, margin, margin + courseWidth - 50, margin + 70],
-                    [margin + courseWidth - 50, margin + courseHeight - 70, margin + courseWidth - 50, margin + courseHeight]
-                ];
-                
-                // Brick bumpers - in the path
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: zig1X,
-                    y: margin + courseHeight * 0.35,
-                    width: 60,
-                    height: 20
-                });
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: zig2X,
-                    y: margin + courseHeight * 0.65,
-                    width: 60,
-                    height: 20
-                });
-                break;
-                
-            case 3: // Hole 4: Sharp corner wrap, Water pocket, Par 3
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight - 70;
-                hole.holeX = margin + courseWidth - 70;
-                hole.holeY = margin + 70;
-                hole.par = 3;
-                
-                const cornerX = margin + courseWidth * 0.7;
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Sharp corner wrap barrier - single path
-                    [cornerX - pathWidth / 2, margin + 50, cornerX - pathWidth / 2, margin + courseHeight * 0.5],
-                    [cornerX + pathWidth / 2, margin + courseHeight * 0.5, margin + courseWidth - 60, margin + courseHeight * 0.5],
-                    // Block edges to force through corner - leave gaps for start and hole
-                    [margin + 60, margin + courseHeight - 70, margin + 60, margin + courseHeight], // Gap at start Y
-                    [margin, margin + courseHeight * 0.5, cornerX - pathWidth / 2, margin + courseHeight * 0.5],
-                    [cornerX + pathWidth / 2, margin, cornerX + pathWidth / 2, margin + 70] // Gap at hole Y
-                ];
-                
-                // Water pocket - in the path
-                hole.obstacles.push({
-                    type: 'water',
-                    x: margin + courseWidth * 0.5,
-                    y: margin + courseHeight * 0.3,
-                    radius: 45
-                });
-                break;
-                
-            case 4: // Hole 5: U-shape, Sand + water combo, Par 3
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight - 70;
-                hole.holeX = margin + courseWidth - 70;
-                hole.holeY = margin + 70;
-                hole.par = 3;
-                
-                // U-shape path - constrained single path
-                const uTurnX = margin + courseWidth * 0.7;
-                const uTurnY = margin + courseHeight * 0.5;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // U-shape barrier - creates single path that goes right, then turns up
-                    [uTurnX - pathWidth / 2, margin + 60, uTurnX - pathWidth / 2, uTurnY],
-                    [uTurnX + pathWidth / 2, uTurnY, uTurnX + pathWidth / 2, margin + courseHeight - 60],
-                    // Horizontal barrier at turn
-                    [margin + 60, uTurnY - pathWidth / 2, uTurnX - pathWidth / 2, uTurnY - pathWidth / 2],
-                    [margin + 60, uTurnY + pathWidth / 2, uTurnX - pathWidth / 2, uTurnY + pathWidth / 2],
-                    // Block edges to force through U-shape - leave gaps for start and hole
-                    [margin + 60, margin + courseHeight - 70, margin + 60, margin + courseHeight], // Gap at start
-                    [margin, margin + courseHeight - 70, margin + 60, margin + courseHeight - 70],
-                    [margin + courseWidth - 70, margin, margin + courseWidth - 70, margin + 70], // Gap at hole
-                    [margin + courseWidth, margin + 70, margin + courseWidth - 60, margin + 70]
-                ];
-                
-                // Sand + water combo - directly in the path
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.4, // In the horizontal section before turn
-                    y: margin + courseHeight - 100,
-                    radius: 40
-                });
-                hole.obstacles.push({
-                    type: 'water',
-                    x: uTurnX, // At the turn point
-                    y: margin + courseHeight * 0.65,
-                    radius: 40
-                });
-                break;
-                
-            case 5: // Hole 6: S-curve, Elevated ramp, Par 3
-                hole.startX = margin + 60;
-                hole.startY = margin + 100;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + courseHeight - 100;
-                hole.par = 3;
-                
-                const s1X = margin + courseWidth * 0.3;
-                const s2X = margin + courseWidth * 0.7;
-                const sMidY = margin + courseHeight / 2;
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // S-curve barriers - single constrained path
-                    [s1X - pathWidth / 2, margin + 60, s1X - pathWidth / 2, sMidY - 40],
-                    [s1X + pathWidth / 2, sMidY + 40, s1X + pathWidth / 2, margin + courseHeight - 60],
-                    [s2X - pathWidth / 2, margin + courseHeight - 60, s2X - pathWidth / 2, sMidY + 40],
-                    [s2X + pathWidth / 2, sMidY - 40, s2X + pathWidth / 2, margin + 60],
-                    // Block edges to force through S-curve - leave gaps for start and hole
-                    [margin + 60, margin, margin + 60, margin + 100], // Gap at start
-                    [margin, margin + 100, margin + 60, margin + 100],
-                    [margin + courseWidth - 60, margin + courseHeight - 100, margin + courseWidth - 60, margin + courseHeight], // Gap at hole
-                    [margin + courseWidth, margin + courseHeight - 100, margin + courseWidth - 60, margin + courseHeight - 100]
-                ];
-                
-                // Elevated ramp - directly in the path
-                hole.obstacles.push({
-                    type: 'ramp',
-                    x: margin + courseWidth * 0.5,
-                    y: sMidY,
-                    width: 80,
-                    height: 30,
-                    angle: Math.PI / 6 // 30 degree ramp
-                });
-                break;
-                
-            case 6: // Hole 7: Simple S-curve - easy path, Par 3
-                hole.startX = margin + 80;
-                hole.startY = margin + courseHeight - 80;
-                hole.holeX = margin + courseWidth - 80;
-                hole.holeY = margin + 80;
-                hole.par = 3;
-                
-                // Simple S-curve: Start bottom-left, hole top-right
-                // One clear path that curves through the middle
-                const curveMidX = margin + courseWidth / 2;
-                const curveMidY = margin + courseHeight / 2;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Simple S-curve barriers - creates one clear path
-                    // Left side barrier with gap at bottom
-                    [curveMidX - pathWidth / 2, margin + 100, curveMidX - pathWidth / 2, curveMidY - 30],
-                    [curveMidX - pathWidth / 2, curveMidY + 30, curveMidX - pathWidth / 2, margin + courseHeight - 100],
-                    // Right side barrier with gap at top
-                    [curveMidX + pathWidth / 2, margin + 100, curveMidX + pathWidth / 2, curveMidY - 30],
-                    [curveMidX + pathWidth / 2, curveMidY + 30, curveMidX + pathWidth / 2, margin + courseHeight - 100],
-                    // Block direct routes to force through curve
-                    [margin + 80, margin, margin + 80, margin + courseHeight - 100], // Gap for start
-                    [margin, margin + courseHeight - 80, margin + 150, margin + courseHeight - 80],
-                    [margin + courseWidth - 80, margin + 100, margin + courseWidth - 80, margin + courseHeight], // Gap for hole
-                    [margin + courseWidth, margin + 80, margin + courseWidth - 150, margin + 80]
-                ];
-                
-                // Small decorative rotating barrier (doesn't block path)
-                hole.obstacles.push({
-                    type: 'rotatingBarrier',
-                    x: curveMidX,
-                    y: curveMidY,
-                    length: 35,
-                    thickness: 4,
-                    rotation: 0,
-                    rotationSpeed: 0.02,
-                    pivotX: curveMidX,
-                    pivotY: curveMidY
-                });
-                
-                // Light obstacles that don't block the path
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.3,
-                    y: margin + courseHeight * 0.6,
-                    radius: 18
-                });
-                
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: margin + courseWidth * 0.7,
-                    y: margin + courseHeight * 0.4,
-                    width: 25,
-                    height: 8
-                });
-                break;
-                
-            case 7: // Hole 8: Two-tier platform, Bridge over water, Par 4
-                hole.startX = margin + 50;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 50;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 4;
-                
-                // Two-tier platform - single constrained path through bridge
-                const tierY = margin + courseHeight * 0.5;
-                const bridgeX = margin + courseWidth * 0.5;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Constrained path - narrow horizontal corridor
-                    [margin + 50, tierY - pathWidth / 2, bridgeX - 40, tierY - pathWidth / 2],
-                    [bridgeX + 40, tierY - pathWidth / 2, margin + courseWidth - 50, tierY - pathWidth / 2],
-                    [margin + 50, tierY + pathWidth / 2, bridgeX - 40, tierY + pathWidth / 2],
-                    [bridgeX + 40, tierY + pathWidth / 2, margin + courseWidth - 50, tierY + pathWidth / 2],
-                    // Block top and bottom edges
-                    [margin + 50, margin, margin + courseWidth - 50, tierY - pathWidth / 2],
-                    [margin + 50, tierY + pathWidth / 2, margin + courseWidth - 50, margin + courseHeight]
-                ];
-                
-                // Water under bridge
-                hole.obstacles.push({
-                    type: 'water',
-                    x: bridgeX,
-                    y: tierY,
-                    radius: 0,
-                    width: 80,
-                    height: pathWidth
-                });
-                
-                // Bridge
-                hole.obstacles.push({
-                    type: 'bridge',
-                    x: bridgeX,
-                    y: tierY,
-                    width: 80,
-                    height: pathWidth
-                });
-                break;
-                
-            case 8: // Hole 9: Choke point into pool, Jump pad, Par 4
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight - 70;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + 70;
-                hole.par = 4;
-                
-                // Single constrained path through choke point to pool
-                const chokeX = margin + courseWidth * 0.6;
-                const poolX = margin + courseWidth * 0.8;
-                const poolY = margin + 70;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Choke point barriers - very narrow opening
-                    [chokeX - pathWidth / 3, margin + 60, chokeX - pathWidth / 3, margin + courseHeight - 60],
-                    [chokeX + pathWidth / 3, margin + 60, chokeX + pathWidth / 3, margin + courseHeight - 60],
-                    // Block left and right edges to force through choke - leave gaps for start and hole
-                    [margin + 60, margin + 70, margin + 60, margin + courseHeight], // Gap at start
-                    [margin, margin + 70, margin + 60, margin + 70],
-                    [margin + courseWidth - 60, margin, margin + courseWidth - 60, margin + 70], // Gap at hole
-                    [margin + courseWidth, margin + 70, margin + courseWidth - 60, margin + 70]
-                ];
-                
-                // More obstacles added
-                // Sand trap before choke point
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.4,
-                    y: margin + courseHeight * 0.5,
-                    radius: 35
-                });
-                
-                // Pool (water) at end
-                hole.obstacles.push({
-                    type: 'water',
-                    x: poolX,
-                    y: poolY,
-                    radius: 45
-                });
-                
-                // Jump pad (boosts ball speed) - positioned in choke point
-                hole.obstacles.push({
-                    type: 'jumpPad',
-                    x: chokeX,
-                    y: margin + courseHeight / 2,
-                    radius: 25
-                });
-                
-                // Brick bumper obstacle in path
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: margin + courseWidth * 0.5,
-                    y: margin + courseHeight * 0.65,
-                    width: 50,
-                    height: 20
-                });
-                break;
-                
-            case 9: // Hole 10: Loopback inside corners, Sand hazard cluster, Par 3
-                hole.startX = margin + 60;
-                hole.startY = margin + 50;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + courseHeight - 50;
-                hole.par = 3;
-                
-                // Constrained loopback path - single route through corners
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Loopback barriers - narrow path forces through obstacles
-                    [margin + courseWidth * 0.3, margin + 80, margin + courseWidth * 0.3, margin + courseHeight * 0.5],
-                    [margin + courseWidth * 0.7, margin + courseHeight * 0.5, margin + courseWidth * 0.7, margin + courseHeight - 80],
-                    [margin + courseWidth * 0.5, margin + 80, margin + courseWidth * 0.5, margin + courseHeight * 0.35],
-                    [margin + courseWidth * 0.5, margin + courseHeight * 0.65, margin + courseWidth * 0.5, margin + courseHeight - 80],
-                    // Block edges to force through loopback - leave gaps for start and hole
-                    [margin + 60, margin, margin + 60, margin + 50], // Gap at start
-                    [margin, margin + 50, margin + courseWidth * 0.3, margin + 50],
-                    [margin + courseWidth - 60, margin + courseHeight - 50, margin + courseWidth - 60, margin + courseHeight], // Gap at hole
-                    [margin + courseWidth, margin + courseHeight - 50, margin + courseWidth * 0.7, margin + courseHeight - 50]
-                ];
-                
-                // Sand hazard cluster - positioned directly in the path so ball must navigate through them
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.4, // In the path between barriers
-                    y: margin + courseHeight * 0.4,
-                    radius: 40 // Larger to be harder to avoid
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.5,
-                    y: margin + courseHeight * 0.5, // Right at the path center
-                    radius: 40
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.6, // In the path between barriers
-                    y: margin + courseHeight * 0.6,
-                    radius: 40
-                });
-                
-                // Add water hazard to make it even harder
-                hole.obstacles.push({
-                    type: 'water',
-                    x: margin + courseWidth * 0.35,
-                    y: margin + courseHeight * 0.65,
-                    radius: 35
-                });
-                break;
-                
-            case 10: // Hole 11: Simple box with guaranteed center path, Par 3
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 3;
-                
-                // Completely redesigned: Simple box with wide open center corridor
-                // Guaranteed path: start -> left funnel -> center corridor -> right funnel -> hole
-                const boxX1 = margin + courseWidth * 0.35;
-                const boxX2 = margin + courseWidth * 0.65;
-                const boxY1 = margin + courseHeight * 0.4;
-                const boxY2 = margin + courseHeight * 0.6;
-                const centerGap = 80; // Wide center gap - always passable
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Left funnel walls
-                    [boxX1 - pathWidth / 2, margin + 60, boxX1 - pathWidth / 2, boxY1],
-                    [boxX1 + pathWidth / 2, margin + 60, boxX1 + pathWidth / 2, boxY1],
-                    // Right funnel walls
-                    [boxX2 - pathWidth / 2, boxY2, boxX2 - pathWidth / 2, margin + courseHeight - 60],
-                    [boxX2 + pathWidth / 2, boxY2, boxX2 + pathWidth / 2, margin + courseHeight - 60],
-                    // Top of box - wide open center (guaranteed path)
-                    [boxX1, boxY1, boxX1 - centerGap / 2, boxY1], // Left segment
-                    [boxX2, boxY1, boxX2 + centerGap / 2, boxY1], // Right segment (center always open)
-                    // Bottom of box - wide open center (guaranteed path)
-                    [boxX1, boxY2, boxX1 - centerGap / 2, boxY2], // Left segment
-                    [boxX2, boxY2, boxX2 + centerGap / 2, boxY2], // Right segment (center always open)
-                    // Side walls of box
-                    [boxX1, boxY1, boxX1, boxY2], // Left of box
-                    [boxX2, boxY1, boxX2, boxY2],  // Right of box
-                    // Clear paths to and from box
-                    [margin + 60, margin, margin + 60, margin + courseHeight / 2], // Gap at start
-                    [margin, margin + courseHeight / 2, boxX1 - pathWidth / 2, margin + courseHeight / 2], // Path to left funnel
-                    [margin + courseWidth - 60, margin + courseHeight / 2, margin + courseWidth - 60, margin + courseHeight], // Gap at hole
-                    [margin + courseWidth, margin + courseHeight / 2, boxX2 + pathWidth / 2, margin + courseHeight / 2] // Path from right funnel
-                ];
-                
-                // Moving gate - positioned well away from center path (optional challenge only)
-                hole.obstacles.push({
-                    type: 'movingGate',
-                    x: margin + courseWidth * 0.3, // Far left, doesn't affect main path
-                    y: boxY1 + (boxY2 - boxY1) / 2,
-                    width: 20,
-                    height: 6,
-                    isOpen: false,
-                    toggleTime: 0,
-                    toggleInterval: 3000
-                });
-                
-                // Smaller spinners/windmills in the middle - skill challenge
-                hole.obstacles.push({
-                    type: 'rotatingBarrier',
-                    x: margin + courseWidth * 0.5,
-                    y: boxY1 + (boxY2 - boxY1) / 2,
-                    length: 35,
-                    thickness: 4,
-                    rotation: 0,
-                    rotationSpeed: 0.03,
-                    pivotX: margin + courseWidth * 0.5,
-                    pivotY: boxY1 + (boxY2 - boxY1) / 2
-                });
-                hole.obstacles.push({
-                    type: 'rotatingBarrier',
-                    x: margin + courseWidth * 0.45,
-                    y: boxY1 + (boxY2 - boxY1) / 2,
-                    length: 28,
-                    thickness: 3,
-                    rotation: Math.PI / 2,
-                    rotationSpeed: -0.025,
-                    pivotX: margin + courseWidth * 0.45,
-                    pivotY: boxY1 + (boxY2 - boxY1) / 2
-                });
-                hole.obstacles.push({
-                    type: 'rotatingBarrier',
-                    x: margin + courseWidth * 0.55,
-                    y: boxY1 + (boxY2 - boxY1) / 2,
-                    length: 28,
-                    thickness: 3,
-                    rotation: 0,
-                    rotationSpeed: 0.025,
-                    pivotX: margin + courseWidth * 0.55,
-                    pivotY: boxY1 + (boxY2 - boxY1) / 2
-                });
-                
-                // Light obstacles positioned outside the main center corridor
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.3,
-                    y: margin + courseHeight * 0.45,
-                    radius: 12
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: margin + courseWidth * 0.7,
-                    y: margin + courseHeight * 0.55,
-                    radius: 12
-                });
-                break;
-                
-            case 11: // Hole 12: Figure-eight maze with clear path, Wood planks + slope, Par 4
-                hole.startX = margin + courseWidth / 2;
-                hole.startY = margin + 120;
-                hole.holeX = margin + courseWidth / 2;
-                hole.holeY = margin + courseHeight - 120;
-                hole.par = 4;
-                
-                // Figure-eight maze - clear path through figure-8
-                const f8X = margin + courseWidth / 2;
-                const f8Y1 = margin + courseHeight * 0.35;
-                const f8Y2 = margin + courseHeight * 0.65;
-                const pathGap = 20; // Gap in center horizontal walls for crossing
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Figure-8 barriers - create clear paths with gaps
-                    [f8X - pathWidth / 2, margin + 80, f8X - pathWidth / 2, f8Y1],
-                    [f8X - pathWidth / 2, f8Y2, f8X - pathWidth / 2, margin + courseHeight - 80],
-                    [f8X + pathWidth / 2, margin + 80, f8X + pathWidth / 2, f8Y1],
-                    [f8X + pathWidth / 2, f8Y2, f8X + pathWidth / 2, margin + courseHeight - 80],
-                    // Top horizontal - leave gap in center for crossing
-                    [margin + 80, f8Y1, f8X - pathGap / 2, f8Y1],
-                    [f8X + pathGap / 2, f8Y1, margin + courseWidth - 80, f8Y1],
-                    // Bottom horizontal - leave gap in center for crossing
-                    [margin + 80, f8Y2, f8X - pathGap / 2, f8Y2],
-                    [f8X + pathGap / 2, f8Y2, margin + courseWidth - 80, f8Y2],
-                    // Block edges to force through figure-8 - leave gaps for start and hole
-                    [margin + courseWidth / 2, margin, margin + courseWidth / 2, margin + 120], // Gap at start
-                    [margin, margin + 120, f8X - pathWidth / 2, margin + 120],
-                    [f8X + pathWidth / 2, margin + 120, margin + courseWidth, margin + 120],
-                    [margin + courseWidth / 2, margin + courseHeight - 120, margin + courseWidth / 2, margin + courseHeight], // Gap at hole
-                    [margin, margin + courseHeight - 120, f8X - pathWidth / 2, margin + courseHeight - 120],
-                    [f8X + pathWidth / 2, margin + courseHeight - 120, margin + courseWidth, margin + courseHeight - 120]
-                ];
-                
-                // Wood planks (horizontal barriers) - positioned to not block main path
-                hole.obstacles.push({
-                    type: 'plank',
-                    x: margin + courseWidth * 0.2,
-                    y: f8Y1,
-                    width: 50,
-                    height: 8
-                });
-                hole.obstacles.push({
-                    type: 'plank',
-                    x: margin + courseWidth * 0.8,
-                    y: f8Y2,
-                    width: 50,
-                    height: 8
-                });
-                
-                // Slope (ramp that affects ball speed) - offset from main path
-                hole.obstacles.push({
-                    type: 'slope',
-                    x: f8X + 30,
-                    y: margin + courseHeight * 0.5,
-                    width: 80,
-                    height: 25,
-                    angle: Math.PI / 10
-                });
-                break;
-                
-            case 12: // Hole 13: Horseshoe loop with path around water, Water moat, Par 4
-                hole.startX = margin + 50;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 50;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 4;
-                
-                // Horseshoe loop - clear path around water moat (must be avoided)
-                const horseshoeX = margin + courseWidth / 2;
-                const horseshoeY = margin + courseHeight / 2;
-                const horseshoeRadius = 90;
-                const horseshoeGap = 60; // Clear gap to navigate around
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Left path barriers - creates clear route around left side of moat
-                    [horseshoeX - horseshoeRadius - pathWidth / 2, margin + 80, 
-                     horseshoeX - horseshoeRadius - pathWidth / 2, horseshoeY - horseshoeGap / 2],
-                    [horseshoeX - horseshoeRadius + pathWidth / 2, margin + 80, 
-                     horseshoeX - horseshoeRadius + pathWidth / 2, horseshoeY - horseshoeGap / 2],
-                    // Right path barriers - creates clear route around right side of moat
-                    [horseshoeX + horseshoeRadius - pathWidth / 2, horseshoeY + horseshoeGap / 2, 
-                     horseshoeX + horseshoeRadius - pathWidth / 2, margin + courseHeight - 80],
-                    [horseshoeX + horseshoeRadius + pathWidth / 2, horseshoeY + horseshoeGap / 2, 
-                     horseshoeX + horseshoeRadius + pathWidth / 2, margin + courseHeight - 80],
-                    // Top connecting path - clear route above moat
-                    [margin + 80, horseshoeY - horseshoeGap / 2, 
-                     horseshoeX - horseshoeRadius - pathWidth / 2, horseshoeY - horseshoeGap / 2],
-                    [horseshoeX + horseshoeRadius + pathWidth / 2, horseshoeY - horseshoeGap / 2, 
-                     margin + courseWidth - 80, horseshoeY - horseshoeGap / 2],
-                    // Bottom connecting path - clear route below moat
-                    [margin + 80, horseshoeY + horseshoeGap / 2, 
-                     horseshoeX - horseshoeRadius - pathWidth / 2, horseshoeY + horseshoeGap / 2],
-                    [horseshoeX + horseshoeRadius + pathWidth / 2, horseshoeY + horseshoeGap / 2, 
-                     margin + courseWidth - 80, horseshoeY + horseshoeGap / 2],
-                    // Block edges to force through horseshoe path
-                    [margin + 50, margin, margin + 50, margin + courseHeight / 2],
-                    [margin, margin + courseHeight / 2, horseshoeX - horseshoeRadius - pathWidth / 2, margin + courseHeight / 2],
-                    [margin + courseWidth - 50, margin + courseHeight / 2, margin + courseWidth - 50, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight / 2, horseshoeX + horseshoeRadius + pathWidth / 2, margin + courseHeight / 2]
-                ];
-                
-                // Water moat in center - MUST be avoided (penalty applied)
-                hole.obstacles.push({
-                    type: 'water',
-                    x: horseshoeX,
-                    y: horseshoeY,
-                    radius: horseshoeRadius - 15,
-                    innerRadius: horseshoeRadius - 45 // Creates a ring/moat
-                });
-                break;
-                
-            case 13: // Hole 14: Zigzag path with obstacles blocking, Mini-ramp + sand, Par 3
-                hole.startX = margin + 50;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 50;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 3;
-                
-                // Zigzag path with obstacles directly in the way - can't go straight
-                const hop1X = margin + courseWidth * 0.25;
-                const hop2X = margin + courseWidth * 0.5;
-                const hop3X = margin + courseWidth * 0.75;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Zigzag barriers - narrow path that forces navigation around obstacles
-                    [hop1X - pathWidth / 2, margin + 70, hop1X - pathWidth / 2, margin + courseHeight * 0.4],
-                    [hop1X + pathWidth / 2, margin + courseHeight * 0.6, hop1X + pathWidth / 2, margin + courseHeight - 70],
-                    [hop2X - pathWidth / 2, margin + courseHeight * 0.4, hop2X - pathWidth / 2, margin + 70],
-                    [hop2X + pathWidth / 2, margin + courseHeight - 70, hop2X + pathWidth / 2, margin + courseHeight * 0.6],
-                    [hop3X - pathWidth / 2, margin + 70, hop3X - pathWidth / 2, margin + courseHeight * 0.4],
-                    [hop3X + pathWidth / 2, margin + courseHeight * 0.6, hop3X + pathWidth / 2, margin + courseHeight - 70],
-                    // Horizontal blockers in middle - force zigzag, block straight shot
-                    [hop1X - pathWidth / 2, margin + courseHeight * 0.4, hop1X + pathWidth / 2, margin + courseHeight * 0.4],
-                    [hop2X - pathWidth / 2, margin + courseHeight * 0.6, hop2X + pathWidth / 2, margin + courseHeight * 0.6],
-                    [hop3X - pathWidth / 2, margin + courseHeight * 0.4, hop3X + pathWidth / 2, margin + courseHeight * 0.4],
-                    // Block edges to force through zigzag
-                    [margin + 50, margin, margin + 50, margin + courseHeight / 2],
-                    [margin, margin + courseHeight / 2, hop1X - pathWidth / 2, margin + courseHeight / 2],
-                    [margin + courseWidth - 50, margin + courseHeight / 2, margin + courseWidth - 50, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight / 2, hop3X + pathWidth / 2, margin + courseHeight / 2]
-                ];
-                
-                // Large obstacles directly blocking straight path
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: hop1X,
-                    y: margin + courseHeight / 2, // Directly in middle path
-                    radius: 35
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: hop3X,
-                    y: margin + courseHeight / 2, // Directly in middle path
-                    radius: 35
-                });
-                
-                // Mini-ramp - forces navigation
-                hole.obstacles.push({
-                    type: 'ramp',
-                    x: hop2X,
-                    y: margin + courseHeight * 0.45,
-                    width: 55,
-                    height: 20,
-                    angle: Math.PI / 10
-                });
-                
-                // Brick bumpers to force zigzag navigation
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: hop1X,
-                    y: margin + courseHeight * 0.65,
-                    width: 45,
-                    height: 14
-                });
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: hop3X,
-                    y: margin + courseHeight * 0.35,
-                    width: 45,
-                    height: 14
-                });
-                break;
-                
-            case 14: // Hole 15: Castle moat with elevated ramps, Par 4
-                hole.startX = margin + courseWidth / 2;
-                hole.startY = margin + courseHeight - 70;
-                hole.holeX = margin + courseWidth / 2;
-                hole.holeY = margin + 80;
-                hole.par = 4;
-                
-                // Castle moat - two constrained paths (left or right ramp) around moat
-                const castleCenterX = margin + courseWidth / 2;
-                const moatInnerRadius = 80;
-                const moatOuterRadius = 140;
-                const ramp1X = margin + courseWidth * 0.3;
-                const ramp2X = margin + courseWidth * 0.7;
-                const rampY = margin + courseHeight * 0.5;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Left ramp path - narrow
-                    [ramp1X - pathWidth / 2, rampY, ramp1X - pathWidth / 2, margin + 90],
-                    [ramp1X + pathWidth / 2, rampY, ramp1X + pathWidth / 2, margin + 90],
-                    [ramp1X - pathWidth / 2, rampY, ramp1X - pathWidth / 2, margin + courseHeight - 90],
-                    [ramp1X + pathWidth / 2, rampY, ramp1X + pathWidth / 2, margin + courseHeight - 90],
-                    // Right ramp path - narrow
-                    [ramp2X - pathWidth / 2, rampY, ramp2X - pathWidth / 2, margin + 90],
-                    [ramp2X + pathWidth / 2, rampY, ramp2X + pathWidth / 2, margin + 90],
-                    [ramp2X - pathWidth / 2, rampY, ramp2X - pathWidth / 2, margin + courseHeight - 90],
-                    [ramp2X + pathWidth / 2, rampY, ramp2X + pathWidth / 2, margin + courseHeight - 90],
-                    // Horizontal connectors for ramps - block direct path
-                    [margin + 60, rampY, ramp1X - pathWidth / 2, rampY],
-                    [ramp1X + pathWidth / 2, rampY, castleCenterX - moatOuterRadius, rampY],
-                    [castleCenterX + moatOuterRadius, rampY, ramp2X - pathWidth / 2, rampY],
-                    [ramp2X + pathWidth / 2, rampY, margin + courseWidth - 60, rampY],
-                    // Block center to force through ramps
-                    [castleCenterX - moatOuterRadius, rampY - pathWidth / 2, castleCenterX - moatInnerRadius, rampY - pathWidth / 2],
-                    [castleCenterX - moatOuterRadius, rampY + pathWidth / 2, castleCenterX - moatInnerRadius, rampY + pathWidth / 2],
-                    [castleCenterX + moatInnerRadius, rampY - pathWidth / 2, castleCenterX + moatOuterRadius, rampY - pathWidth / 2],
-                    [castleCenterX + moatInnerRadius, rampY + pathWidth / 2, castleCenterX + moatOuterRadius, rampY + pathWidth / 2]
-                ];
-                
-                // Water moat around center (circular)
-                hole.obstacles.push({
-                    type: 'water',
-                    x: castleCenterX,
-                    y: rampY,
-                    radius: moatOuterRadius,
-                    innerRadius: moatInnerRadius // Creates ring/moat effect
-                });
-                
-                // Elevated ramps on sides
-                hole.obstacles.push({
-                    type: 'ramp',
-                    x: ramp1X,
-                    y: rampY - 40,
-                    width: pathWidth,
-                    height: 30,
-                    angle: -Math.PI / 6 // Upward ramp to elevated area
-                });
-                hole.obstacles.push({
-                    type: 'ramp',
-                    x: ramp1X,
-                    y: rampY + 40,
-                    width: pathWidth,
-                    height: 30,
-                    angle: Math.PI / 6 // Downward ramp from elevated area
-                });
-                hole.obstacles.push({
-                    type: 'ramp',
-                    x: ramp2X,
-                    y: rampY - 40,
-                    width: pathWidth,
-                    height: 30,
-                    angle: -Math.PI / 6 // Upward ramp
-                });
-                hole.obstacles.push({
-                    type: 'ramp',
-                    x: ramp2X,
-                    y: rampY + 40,
-                    width: pathWidth,
-                    height: 30,
-                    angle: Math.PI / 6 // Downward ramp
-                });
-                
-                // Moving gates at ramp entrances (timing challenge)
-                hole.obstacles.push({
-                    type: 'movingGate',
-                    x: ramp1X,
-                    y: rampY - 60,
-                    width: 40,
-                    height: 8,
-                    isOpen: false,
-                    toggleTime: 0,
-                    toggleInterval: 3000
-                });
-                hole.obstacles.push({
-                    type: 'movingGate',
-                    x: ramp2X,
-                    y: rampY - 60,
-                    width: 40,
-                    height: 8,
-                    isOpen: false,
-                    toggleTime: 0,
-                    toggleInterval: 3500 // Slightly offset timing
-                });
-                
-                // Sand traps on elevated areas
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: ramp1X,
-                    y: rampY - 80,
-                    radius: 30
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: ramp2X,
-                    y: rampY - 80,
-                    radius: 30
-                });
-                
-                // Brick obstacles near moat
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: castleCenterX - 100,
-                    y: rampY,
-                    width: 40,
-                    height: 20
-                });
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: castleCenterX + 100,
-                    y: rampY,
-                    width: 40,
-                    height: 20
-                });
-                break;
-                
-            case 15: // Hole 16: Spiral path, None, Par 3
-                hole.startX = margin + courseWidth / 2;
-                hole.startY = margin + courseHeight - 60;
-                hole.holeX = margin + courseWidth / 2;
-                hole.holeY = margin + 60;
-                hole.par = 3;
-                
-                // Spiral path - single constrained route spiraling inward
-                const centerX = margin + courseWidth / 2;
-                const centerY = margin + courseHeight / 2;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Spiral barriers - narrow spiral path
-                    [centerX - 120, margin + 100, centerX - 120, margin + courseHeight - 100],
-                    [centerX - 80, margin + 100, centerX - 80, centerY - 60],
-                    [centerX - 80, centerY + 60, centerX - 80, margin + courseHeight - 100],
-                    [centerX + 80, margin + 100, centerX + 80, centerY - 60],
-                    [centerX + 80, centerY + 60, centerX + 80, margin + courseHeight - 100],
-                    [centerX + 120, margin + 100, centerX + 120, margin + courseHeight - 100],
-                    // Horizontal barriers to create spiral
-                    [centerX - 120, centerY, centerX - 80, centerY],
-                    [centerX + 80, centerY, centerX + 120, centerY],
-                    [margin + 100, centerY - 50, margin + 100, centerY + 50],
-                    [margin + courseWidth - 100, centerY - 50, margin + courseWidth - 100, centerY + 50],
-                    // Block edges to force through spiral
-                    [centerX, margin, centerX, margin + 60],
-                    [centerX, margin + courseHeight - 60, centerX, margin + courseHeight]
-                ];
-                
-                // Add obstacles in the path between start and hole
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: centerX - 100,
-                    y: centerY,
-                    radius: 35
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: centerX + 100,
-                    y: centerY,
-                    radius: 35
-                });
-                hole.obstacles.push({
-                    type: 'brick',
-                    x: centerX,
-                    y: centerY - 80,
-                    width: 60,
-                    height: 20
-                });
-                break;
-                
-            case 16: // Hole 17: Open U-bend with rotating barrier, Par 4
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight - 80;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + 80;
-                hole.par = 4;
-                
-                // Open U-bend pipe - wider paths, ball and hole in open areas
-                const pipeX = margin + courseWidth * 0.5;
-                const pipeY1 = margin + courseHeight * 0.35;
-                const pipeY2 = margin + courseHeight * 0.65;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // U-bend pipe barriers - wider path, more open
-                    [pipeX - pathWidth / 2, margin + 100, pipeX - pathWidth / 2, pipeY1],
-                    [pipeX - pathWidth / 2, pipeY2, pipeX - pathWidth / 2, margin + courseHeight - 100],
-                    [pipeX + pathWidth / 2, margin + 100, pipeX + pathWidth / 2, pipeY1],
-                    [pipeX + pathWidth / 2, pipeY2, pipeX + pathWidth / 2, margin + courseHeight - 100],
-                    // Horizontal sections of U - shorter, leaving open areas
-                    [margin + 100, pipeY1, pipeX - pathWidth / 2, pipeY1],
-                    [pipeX + pathWidth / 2, pipeY1, margin + courseWidth - 100, pipeY1],
-                    [margin + 100, pipeY2, pipeX - pathWidth / 2, pipeY2],
-                    [pipeX + pathWidth / 2, pipeY2, margin + courseWidth - 100, pipeY2],
-                    // Vertical connectors - shorter to leave start/hole areas open
-                    [margin + 100, margin + 120, margin + 100, pipeY1],
-                    [margin + 100, pipeY2, margin + 100, margin + courseHeight - 120],
-                    [margin + courseWidth - 100, margin + 120, margin + courseWidth - 100, pipeY1],
-                    [margin + courseWidth - 100, pipeY2, margin + courseWidth - 100, margin + courseHeight - 120],
-                    // Minimal blocking - leave large open areas for start and hole
-                    [margin + 60, margin + courseHeight - 80, margin + 60, margin + courseHeight - 40],
-                    [margin, margin + courseHeight - 80, margin + 100, margin + courseHeight - 80],
-                    [margin + courseWidth - 60, margin + 80, margin + courseWidth - 60, margin + 120],
-                    [margin + courseWidth, margin + 80, margin + courseWidth - 100, margin + 80]
-                ];
-                
-                // Rotating barrier in the middle
-                hole.obstacles.push({
-                    type: 'rotatingBarrier',
-                    x: pipeX,
-                    y: margin + courseHeight / 2,
-                    length: 70,
-                    thickness: 7,
-                    rotation: 0,
-                    rotationSpeed: 0.03,
-                    pivotX: pipeX,
-                    pivotY: margin + courseHeight / 2
-                });
-                
-                // Light obstacles that don't block the open areas
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: pipeX,
-                    y: pipeY1,
-                    radius: 25
-                });
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: pipeX,
-                    y: pipeY2,
-                    radius: 25
-                });
-                break;
-                
-            case 17: // Hole 18: Simple final challenge - guaranteed completable, Par 3
-                hole.startX = margin + 60;
-                hole.startY = margin + courseHeight / 2;
-                hole.holeX = margin + courseWidth - 60;
-                hole.holeY = margin + courseHeight / 2;
-                hole.par = 3; // Reduced to 3 for easier completion
-                
-                // Ultra-simplified final hole - wide open path with minimal obstacles
-                // Guaranteed completable with a clear route
-                const midX = margin + courseWidth / 2;
-                const thirdX1 = margin + courseWidth * 0.33;
-                const thirdX2 = margin + courseWidth * 0.67;
-                
-                hole.walls = [
-                    [margin, margin, margin + courseWidth, margin],
-                    [margin + courseWidth, margin, margin + courseWidth, margin + courseHeight],
-                    [margin + courseWidth, margin + courseHeight, margin, margin + courseHeight],
-                    [margin, margin + courseHeight, margin, margin],
-                    // Simple barriers - create wide main path with one small obstacle zone
-                    // Left barrier - creates wide path
-                    [thirdX1 - pathWidth, margin + 100, thirdX1 - pathWidth, margin + courseHeight - 100],
-                    [thirdX1 + pathWidth, margin + 100, thirdX1 + pathWidth, margin + courseHeight - 100],
-                    // Right barrier - creates wide path
-                    [thirdX2 - pathWidth, margin + 100, thirdX2 - pathWidth, margin + courseHeight - 100],
-                    [thirdX2 + pathWidth, margin + 100, thirdX2 + pathWidth, margin + courseHeight - 100],
-                    // Block top and bottom to guide through center
-                    [margin + 60, margin, thirdX1 - pathWidth, margin],
-                    [thirdX1 + pathWidth, margin, thirdX2 - pathWidth, margin],
-                    [thirdX2 + pathWidth, margin, margin + courseWidth - 60, margin],
-                    [margin + 60, margin + courseHeight, thirdX1 - pathWidth, margin + courseHeight],
-                    [thirdX1 + pathWidth, margin + courseHeight, thirdX2 - pathWidth, margin + courseHeight],
-                    [thirdX2 + pathWidth, margin + courseHeight, margin + courseWidth - 60, margin + courseHeight]
-                ];
-                
-                // Light obstacles positioned in side areas - main center path is completely clear
-                // Water hazard - on left side, doesn't block center
-                hole.obstacles.push({
-                    type: 'water',
-                    x: thirdX1,
-                    y: margin + courseHeight * 0.4,
-                    radius: 20
-                });
-                
-                // Sand trap - on right side, doesn't block center
-                hole.obstacles.push({
-                    type: 'sand',
-                    x: thirdX2,
-                    y: margin + courseHeight * 0.6,
-                    radius: 22
-                });
-                break;
-        }
-        
-        // Apply clearance buffers to all walls to ensure start and hole positions are never blocked
-        // This ensures the ball can always start freely and the hole is always accessible
-        if (hole.walls && hole.walls.length > 0) {
-            // Apply clearance around start position
-            hole.walls = applyClearance(hole.walls, hole.startX, hole.startY, BALL_CLEARANCE);
-            // Apply clearance around hole position
-            hole.walls = applyClearance(hole.walls, hole.holeX, hole.holeY, HOLE_CLEARANCE);
-        }
-        
-        return hole;
+        return buildMinigolfHole(holeNumber, margin, courseWidth, courseHeight, this.ball.radius);
     }
     
     setupInput() {
@@ -1531,7 +416,6 @@ class MinigolfGame {
                     this.totalStrokes = 0; // Reset total for debug testing
                     this.loadHole(this.currentHole);
                     this.gameState = 'playing';
-                    console.log(`Debug: Jumped to Hole ${targetHole + 1}`);
                 }
             }
         };
@@ -1627,6 +511,7 @@ class MinigolfGame {
                 // Increment stroke counter
                 this.strokesOnHole++;
                 this.score++;
+                if (typeof audioManager !== 'undefined') audioManager.playGameSfx('minigolf', 'putt');
             }
         };
         
@@ -1656,8 +541,13 @@ class MinigolfGame {
             console.error('Graphics initialization failed');
             return;
         }
-        
-        // Initialize textures after PixiJS is ready
+
+        this.spriteManager = new SpriteManager(this.graphics);
+        this.nesEffects = this.graphics.getScreenEffects();
+        this.gameAssets = new GameAssetHelper(this.spriteManager, 'minigolf');
+        if (this.gameAssets) await this.gameAssets.preloadAll();
+        await this.initSpriteTextures();
+
         this.initTextures();
         
         // Set up ticker callback with safety check
@@ -1681,9 +571,12 @@ class MinigolfGame {
         // Start initial render
         this.drawPixi();
         
-        // Ensure ticker is running
         if (ticker && !ticker.started) {
             this.graphics.start();
+        }
+
+        if (typeof this.onReady === 'function') {
+            this.onReady();
         }
     }
     
@@ -1777,8 +670,17 @@ class MinigolfGame {
             // Apply friction
             this.ball.vx *= this.friction;
             this.ball.vy *= this.friction;
+
+            if (this.currentHoleData && this.currentHoleData.breakZones) {
+                for (const zone of this.currentHoleData.breakZones) {
+                    const d = Utils.distance(this.ball.x, this.ball.y, zone.x, zone.y);
+                    if (d < zone.radius) {
+                        this.ball.vx += Math.cos(zone.biasAngle) * zone.strength;
+                        this.ball.vy += Math.sin(zone.biasAngle) * zone.strength;
+                    }
+                }
+            }
             
-            // Store old position for swept collision detection
             const oldX = this.ball.x;
             const oldY = this.ball.y;
             
@@ -1891,6 +793,7 @@ class MinigolfGame {
                 const dot = ball.vx * nx + ball.vy * ny;
                 ball.vx -= 2 * dot * nx * this.bounceCoefficient;
                 ball.vy -= 2 * dot * ny * this.bounceCoefficient;
+                if (typeof audioManager !== 'undefined') audioManager.playGameSfx('minigolf', 'bounce');
                 
                 // Move ball slightly away from wall to prevent stuck
                 // Push in the direction of the normal (away from wall)
@@ -2142,6 +1045,12 @@ class MinigolfGame {
                     // Apply heavy friction - much more impactful
                     this.ball.vx *= 0.88; // Very heavy friction (was 0.92)
                     this.ball.vy *= 0.88;
+                    if (!obstacle._sandSoundPlayed) {
+                        obstacle._sandSoundPlayed = true;
+                        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('minigolf', 'sand');
+                    }
+                } else {
+                    obstacle._sandSoundPlayed = false;
                 }
             } else if (obstacle.type === 'water') {
                 // Water slows the ball and adds drag
@@ -2152,6 +1061,7 @@ class MinigolfGame {
                 let inWater = false;
                 let waterEdgeX = ball.x;
                 let waterEdgeY = ball.y;
+                let wasOutside = true;
                 
                 if (obstacle.width && obstacle.height) {
                     // Rectangular water
@@ -2159,7 +1069,7 @@ class MinigolfGame {
                     const distY = Math.abs(ball.y - obstacle.y);
                     const prevDistX = Math.abs(prevX - obstacle.x);
                     const prevDistY = Math.abs(prevY - obstacle.y);
-                    const wasOutside = prevDistX >= obstacle.width / 2 || prevDistY >= obstacle.height / 2;
+                    wasOutside = prevDistX >= obstacle.width / 2 || prevDistY >= obstacle.height / 2;
                     
                     if (distX < obstacle.width / 2 && distY < obstacle.height / 2) {
                         inWater = true;
@@ -2230,7 +1140,7 @@ class MinigolfGame {
                     // Ring/moat water
                     const dist = Utils.distance(ball.x, ball.y, obstacle.x, obstacle.y);
                     const prevDist = Utils.distance(prevX, prevY, obstacle.x, obstacle.y);
-                    const wasOutside = prevDist >= obstacle.radius || prevDist <= obstacle.innerRadius;
+                    wasOutside = prevDist >= obstacle.radius || prevDist <= obstacle.innerRadius;
                     
                     if (dist < obstacle.radius && dist > obstacle.innerRadius) {
                         inWater = true;
@@ -2250,7 +1160,7 @@ class MinigolfGame {
                     // Circular water
                     const dist = Utils.distance(ball.x, ball.y, obstacle.x, obstacle.y);
                     const prevDist = Utils.distance(prevX, prevY, obstacle.x, obstacle.y);
-                    const wasOutside = prevDist >= obstacle.radius;
+                    wasOutside = prevDist >= obstacle.radius;
                     
                     if (dist < obstacle.radius) {
                         inWater = true;
@@ -2269,6 +1179,9 @@ class MinigolfGame {
                 }
                 
                 if (inWater) {
+                    if (wasOutside && typeof audioManager !== 'undefined') {
+                        audioManager.playGameSfx('minigolf', 'water');
+                    }
                     if ((isHole13 || isHole15) && !obstacle.penaltyApplied) {
                         // Hole 13 and Hole 15 special penalty: add stroke and reset ball
                         this.strokesOnHole++;
@@ -2443,6 +1356,7 @@ class MinigolfGame {
                     this.sinking.scale = 1;
                     this.sinking.alpha = 1;
                     this.sinking.startTime = Date.now(); // Track when sinking started
+                    if (typeof audioManager !== 'undefined') audioManager.playGameSfx('minigolf', 'sink');
                     
                     // Stop the ball at hole center
                     this.ball.x = hole.holeX;
@@ -2456,6 +1370,12 @@ class MinigolfGame {
                         }
                     }
                 }
+            } else if (hole.cupLip && speed > this.maxSinkSpeed) {
+                const lipAngle = Math.atan2(ball.y - hole.holeY, ball.x - hole.holeX);
+                ball.vx = Math.cos(lipAngle) * speed * 0.6;
+                ball.vy = Math.sin(lipAngle) * speed * 0.6;
+                ball.x = hole.holeX + Math.cos(lipAngle) * (detectionRadius + ball.radius * 0.5);
+                ball.y = hole.holeY + Math.sin(lipAngle) * (detectionRadius + ball.radius * 0.5);
             } else if (speed > this.maxSinkSpeed && !this.speedWarning.isActive) {
                 // Ball too fast - show warning
                 this.speedWarning.isActive = true;
@@ -2570,6 +1490,8 @@ class MinigolfGame {
         // Draw course background
         this.drawCourse(bgLayer);
         
+        this.drawBreakZones(gameLayer);
+
         // Draw hole
         this.drawHole(gameLayer);
         
@@ -2666,23 +1588,71 @@ class MinigolfGame {
         }
     }
     
+    drawBreakZones(gameLayer) {
+        if (!this.currentHoleData || !this.currentHoleData.breakZones) return;
+        for (const zone of this.currentHoleData.breakZones) {
+            const gfx = new PIXI.Graphics();
+            gfx.lineStyle(1, 0xffffff, 0.15);
+            gfx.drawCircle(zone.x, zone.y, zone.radius);
+            const len = zone.radius * 0.6;
+            const ax = zone.x + Math.cos(zone.biasAngle) * len;
+            const ay = zone.y + Math.sin(zone.biasAngle) * len;
+            gfx.lineStyle(2, 0xffffaa, 0.25);
+            gfx.moveTo(zone.x, zone.y);
+            gfx.lineTo(ax, ay);
+            gameLayer.addChild(gfx);
+        }
+    }
+
     drawHole(gameLayer) {
         if (!this.currentHoleData) return;
         
         const hole = this.currentHoleData;
         
-        // Draw hole (black circle)
-        const holeGraphics = new PIXI.Graphics();
-        holeGraphics.beginFill(0x000000);
-        holeGraphics.drawCircle(hole.holeX, hole.holeY, hole.holeRadius);
-        holeGraphics.endFill();
-        
-        // Add inner shadow effect
-        holeGraphics.beginFill(0x1a1a1a);
-        holeGraphics.drawCircle(hole.holeX, hole.holeY, hole.holeRadius * 0.7);
-        holeGraphics.endFill();
-        
-        gameLayer.addChild(holeGraphics);
+        if (this.holeTexture) {
+            const holeSprite = new PIXI.Sprite(this.holeTexture);
+            holeSprite.anchor.set(0.5);
+            holeSprite.x = hole.holeX;
+            holeSprite.y = hole.holeY;
+            holeSprite.width = hole.holeRadius * 2.4;
+            holeSprite.height = hole.holeRadius * 2.4;
+            gameLayer.addChild(holeSprite);
+        } else {
+            // Draw hole (black circle)
+            const holeGraphics = new PIXI.Graphics();
+            holeGraphics.beginFill(0x000000);
+            holeGraphics.drawCircle(hole.holeX, hole.holeY, hole.holeRadius);
+            holeGraphics.endFill();
+            
+            // Add inner shadow effect
+            holeGraphics.beginFill(0x1a1a1a);
+            holeGraphics.drawCircle(hole.holeX, hole.holeY, hole.holeRadius * 0.7);
+            holeGraphics.endFill();
+            
+            gameLayer.addChild(holeGraphics);
+        }
+
+        if (this.flagTexture) {
+            const flagSprite = new PIXI.Sprite(this.flagTexture);
+            flagSprite.x = hole.holeX - 6;
+            flagSprite.y = hole.holeY - hole.holeRadius - 38;
+            flagSprite.width = 22;
+            flagSprite.height = 42;
+            gameLayer.addChild(flagSprite);
+        } else {
+            const flag = new PIXI.Graphics();
+            flag.lineStyle(2, 0xffffff, 1);
+            flag.moveTo(hole.holeX, hole.holeY - hole.holeRadius);
+            flag.lineTo(hole.holeX, hole.holeY - hole.holeRadius - 30);
+            flag.beginFill(0xff0000);
+            flag.drawPolygon([
+                hole.holeX, hole.holeY - hole.holeRadius - 30,
+                hole.holeX + 14, hole.holeY - hole.holeRadius - 22,
+                hole.holeX, hole.holeY - hole.holeRadius - 14
+            ]);
+            flag.endFill();
+            gameLayer.addChild(flag);
+        }
     }
     
     drawObstacles(gameLayer) {
@@ -2998,12 +1968,30 @@ class MinigolfGame {
         const ball = this.ball;
         
         if (this.sinking.isActive) {
-            // Draw sinking ball with animation
-            const ballSprite = new PIXI.Graphics();
-            ballSprite.beginFill(parseInt(ball.color.replace('#', '0x')), this.sinking.alpha);
-            ballSprite.drawCircle(ball.x, ball.y, ball.radius * this.sinking.scale);
-            ballSprite.endFill();
-            gameLayer.addChild(ballSprite);
+            if (this.ballTexture) {
+                const sprite = new PIXI.Sprite(this.ballTexture);
+                sprite.anchor.set(0.5);
+                sprite.x = ball.x;
+                sprite.y = ball.y;
+                sprite.width = ball.radius * 2 * this.sinking.scale;
+                sprite.height = ball.radius * 2 * this.sinking.scale;
+                sprite.alpha = this.sinking.alpha;
+                gameLayer.addChild(sprite);
+            } else {
+                const ballSprite = new PIXI.Graphics();
+                ballSprite.beginFill(parseInt(ball.color.replace('#', '0x')), this.sinking.alpha);
+                ballSprite.drawCircle(ball.x, ball.y, ball.radius * this.sinking.scale);
+                ballSprite.endFill();
+                gameLayer.addChild(ballSprite);
+            }
+        } else if (this.ballTexture) {
+            const sprite = new PIXI.Sprite(this.ballTexture);
+            sprite.anchor.set(0.5);
+            sprite.x = ball.x;
+            sprite.y = ball.y;
+            sprite.width = ball.radius * 2;
+            sprite.height = ball.radius * 2;
+            gameLayer.addChild(sprite);
         } else {
             // Draw normal ball
             const ballSprite = new PIXI.Graphics();
@@ -3175,6 +2163,7 @@ class MinigolfGame {
         this.score = 0;
         this.strokesOnHole = 0;
         this.loadHole(this.currentHole);
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('minigolf', 'start');
     }
     
     loadHole(holeIndex) {
@@ -3217,7 +2206,8 @@ class MinigolfGame {
     
     gameOver() {
         this.gameState = 'gameOver';
-        
+        if (typeof audioManager !== 'undefined') audioManager.playSfx('gameOver');
+
         // For minigolf, lower score is better
         // We need to handle this specially since the high score manager assumes higher is better
         if (!highScoreManager.scores['minigolf']) {
