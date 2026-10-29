@@ -12,7 +12,8 @@ const STAR_SIEGE_SPRITES = {
     'bullet-player': 'assets/games/space-invaders/sprites/bullet-player.png',
     'bullet-alien': 'assets/games/space-invaders/sprites/bullet-alien.png',
     ufo: 'assets/games/space-invaders/sprites/ufo.png',
-    explosion: 'assets/games/space-invaders/sprites/explosion.png'
+    explosion: 'assets/games/space-invaders/sprites/explosion.png',
+    'bunker-cell': 'assets/games/space-invaders/sprites/bunker-cell.png'
 };
 
 class SpaceInvadersGame {
@@ -59,6 +60,8 @@ class SpaceInvadersGame {
         this.waveClearFlash = 0;
         this.invincibleMs = 0;
         this.starPhase = 0;
+        this.playerMoveDir = 0;
+        this.fxParticles = [];
 
         this.spriteTextures = {};
         this.spriteManager = null;
@@ -113,7 +116,7 @@ class SpaceInvadersGame {
             const fg = this.graphics.getLayer('foreground');
             this.uiLayer = this.graphics.getLayer('ui');
 
-            this.stars = this.buildStars(90);
+            this.stars = this.buildStars();
             this.staticBg = new PIXI.Graphics();
             this.drawStaticBackground(this.staticBg);
             bg.addChild(this.staticBg);
@@ -143,16 +146,27 @@ class SpaceInvadersGame {
         }));
     }
 
-    buildStars(count) {
+    buildStars() {
         const stars = [];
-        for (let i = 0; i < count; i++) {
-            stars.push({
-                x: (i * 97 + 13) % this.width,
-                y: (i * 53 + 7) % (this.height - 80),
-                size: i % 7 === 0 ? 3 : i % 3 === 0 ? 2 : 1,
-                phase: (i * 0.7) % (Math.PI * 2),
-                speed: 0.4 + (i % 5) * 0.15
-            });
+        const layers = [
+            { count: 55, depth: 0.12, sizeMin: 1, sizeMax: 1, tint: 0x6a7a99 },
+            { count: 40, depth: 0.28, sizeMin: 1, sizeMax: 2, tint: 0xb8c8e8 },
+            { count: 22, drift: 0.55, sizeMin: 2, sizeMax: 3, tint: 0xffffff }
+        ];
+        let seed = 0;
+        for (const layer of layers) {
+            for (let i = 0; i < layer.count; i++) {
+                seed++;
+                stars.push({
+                    x: (seed * 97 + 13) % this.width,
+                    y: (seed * 53 + 17) % (this.height - 70),
+                    size: layer.sizeMin + (seed % (layer.sizeMax - layer.sizeMin + 1)),
+                    phase: (seed * 0.73) % (Math.PI * 2),
+                    speed: 0.35 + (seed % 5) * 0.12,
+                    drift: layer.drift,
+                    tint: layer.tint
+                });
+            }
         }
         return stars;
     }
@@ -162,7 +176,20 @@ class SpaceInvadersGame {
     }
 
     spawnExplosion(x, y) {
-        this.explosions.push({ x, y, life: 280, maxLife: 280 });
+        this.explosions.push({ x, y, life: 320, maxLife: 320 });
+        for (let i = 0; i < 10; i++) {
+            const angle = (Math.PI * 2 * i) / 10 + Math.random() * 0.4;
+            const speed = 1.2 + Math.random() * 2.4;
+            this.fxParticles.push({
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 220 + Math.random() * 160,
+                maxLife: 380,
+                size: 1.5 + Math.random() * 2,
+                color: i % 2 === 0 ? 0xffcc55 : 0xff7733
+            });
+        }
     }
 
     startFallbackLoop() {
@@ -249,6 +276,7 @@ class SpaceInvadersGame {
         this.ufoTimer = 8000;
         this.invincibleMs = 0;
         this.explosions = [];
+        this.fxParticles = [];
         this.spawnWave();
         if (typeof audioManager !== 'undefined') audioManager.playGameSfx('space-invaders', 'start');
     }
@@ -420,19 +448,26 @@ class SpaceInvadersGame {
         if (this.gameState !== 'playing') return;
         if (!Number.isFinite(dt) || dt <= 0) return;
 
+        const dtNorm = dt / 16.67;
+        this.updateExplosions(dt);
+        this.updateFxParticles(dtNorm);
+
         if (this.waveClearFlash > 0) {
             this.waveClearFlash -= dt;
             return;
         }
 
-        const dtNorm = dt / 16.67;
-
         if (this.invincibleMs > 0) this.invincibleMs -= dt;
 
-        this.updateExplosions(dt);
-
-        if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.player.x -= this.player.speed * dtNorm;
-        if (this.keys['ArrowRight'] || this.keys['KeyD']) this.player.x += this.player.speed * dtNorm;
+        this.playerMoveDir = 0;
+        if (this.keys['ArrowLeft'] || this.keys['KeyA']) {
+            this.player.x -= this.player.speed * dtNorm;
+            this.playerMoveDir = -1;
+        }
+        if (this.keys['ArrowRight'] || this.keys['KeyD']) {
+            this.player.x += this.player.speed * dtNorm;
+            this.playerMoveDir = 1;
+        }
         this.player.x = Math.max(30, Math.min(this.width - 30, this.player.x));
 
         this.updatePlayerBullet(dtNorm);
@@ -529,6 +564,18 @@ class SpaceInvadersGame {
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             this.explosions[i].life -= dt;
             if (this.explosions[i].life <= 0) this.explosions.splice(i, 1);
+        }
+    }
+
+    updateFxParticles(dtNorm) {
+        for (let i = this.fxParticles.length - 1; i >= 0; i--) {
+            const p = this.fxParticles[i];
+            p.x += p.vx * dtNorm;
+            p.y += p.vy * dtNorm;
+            p.vx *= 0.96;
+            p.vy *= 0.96;
+            p.life -= dtNorm * 16.67;
+            if (p.life <= 0) this.fxParticles.splice(i, 1);
         }
     }
 
@@ -631,46 +678,74 @@ class SpaceInvadersGame {
 
     drawStaticBackground(gfx) {
         gfx.clear();
-        gfx.beginFill(0x000018);
+        gfx.beginFill(0x070b16);
         gfx.drawRect(0, 0, this.width, this.height);
         gfx.endFill();
 
-        // Nebula bands
-        gfx.beginFill(0x220044, 0.25);
-        gfx.drawRect(0, 40, this.width, 120);
-        gfx.endFill();
-        gfx.beginFill(0x002244, 0.2);
-        gfx.drawRect(0, 200, this.width, 100);
-        gfx.endFill();
+        // Soft nebula blobs (cleaner than flat bands)
+        const nebulae = [
+            { x: 120, y: 90, w: 260, h: 110, color: 0x1a2850, a: 0.35 },
+            { x: 480, y: 150, w: 300, h: 130, color: 0x182040, a: 0.3 },
+            { x: 280, y: 260, w: 240, h: 90, color: 0x102838, a: 0.28 },
+            { x: 40, y: 320, w: 180, h: 80, color: 0x141a30, a: 0.25 }
+        ];
+        for (const n of nebulae) {
+            gfx.beginFill(n.color, n.a);
+            gfx.drawEllipse(n.x, n.y, n.w / 2, n.h / 2);
+            gfx.endFill();
+        }
 
         if (this.stars) {
             for (const s of this.stars) {
-                const twinkle = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(this.starPhase * s.speed + s.phase));
-                const tint = s.size >= 3 ? 0xaaccff : 0xffffff;
-                gfx.beginFill(tint, twinkle * 0.9);
-                gfx.drawRect(s.x, s.y, s.size, s.size);
+                const twinkle = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(this.starPhase * s.speed + s.phase));
+                const driftX = (s.x + this.starPhase * s.drift * 18) % this.width;
+                gfx.beginFill(s.tint, twinkle * 0.95);
+                gfx.drawRect(driftX, s.y, s.size, s.size);
                 gfx.endFill();
             }
         }
 
-        // Ground defense line
-        gfx.lineStyle(2, 0x00ffcc, 0.35);
-        gfx.moveTo(0, this.height - 28);
-        gfx.lineTo(this.width, this.height - 28);
+        // Horizon / defense platform
+        gfx.beginFill(0x0c1524, 1);
+        gfx.drawRect(0, this.height - 36, this.width, 36);
+        gfx.endFill();
+        gfx.beginFill(0x15243a, 1);
+        gfx.drawRect(0, this.height - 36, this.width, 3);
+        gfx.endFill();
+        gfx.lineStyle(1, 0x3ecfbf, 0.45);
+        gfx.moveTo(0, this.height - 34);
+        gfx.lineTo(this.width, this.height - 34);
+        // subtle deck ticks
+        gfx.lineStyle(1, 0x2a3d58, 0.55);
+        for (let x = 20; x < this.width; x += 40) {
+            gfx.moveTo(x, this.height - 30);
+            gfx.lineTo(x, this.height - 22);
+        }
     }
 
     blitSprite(container, texKey, x, y, opts = {}) {
         const tex = this.getTexture(texKey);
         if (tex) {
             const spr = new PIXI.Sprite(tex);
-            spr.x = x - (opts.anchorX ?? 0.5) * spr.width;
-            spr.y = y - (opts.anchorY ?? 0) * spr.height;
+            if (opts.width) spr.width = opts.width;
+            if (opts.height) spr.height = opts.height;
+            const aw = opts.anchorX ?? 0.5;
+            const ah = opts.anchorY ?? 0;
+            spr.x = x - aw * spr.width;
+            spr.y = y - ah * spr.height;
             if (opts.alpha !== undefined) spr.alpha = opts.alpha;
             if (opts.tint !== undefined) spr.tint = opts.tint;
+            if (opts.scale !== undefined) {
+                spr.scale.x *= opts.scale;
+                spr.scale.y *= opts.scale;
+                spr.x = x - aw * spr.width;
+                spr.y = y - ah * spr.height;
+            }
             container.addChild(spr);
-            return;
+            return spr;
         }
         if (opts.fallback) opts.fallback(container, x, y);
+        return null;
     }
 
     drawFrame() {
@@ -713,39 +788,80 @@ class SpaceInvadersGame {
     }
 
     drawWorld(container) {
-        const bunkerGfx = new PIXI.Graphics();
-        for (const bunker of this.bunkers) {
-            for (const cell of bunker.cells) {
-                if (!cell.alive) continue;
-                bunkerGfx.beginFill(0x44ff66);
-                bunkerGfx.drawRect(cell.x, cell.y, cell.w, cell.h);
-                bunkerGfx.endFill();
-                bunkerGfx.beginFill(0x88ffaa, 0.5);
-                bunkerGfx.drawRect(cell.x, cell.y, cell.w, 1);
-                bunkerGfx.endFill();
+        // Bunkers — tiled cell sprites so damage reads as chipped armor
+        const bunkerTex = this.getTexture('bunker-cell');
+        if (bunkerTex) {
+            for (const bunker of this.bunkers) {
+                for (const cell of bunker.cells) {
+                    if (!cell.alive) continue;
+                    this.blitSprite(container, 'bunker-cell', cell.x + cell.w / 2, cell.y + cell.h / 2, {
+                        width: cell.w + 1,
+                        height: cell.h + 1,
+                        anchorX: 0.5,
+                        anchorY: 0.5
+                    });
+                }
             }
+        } else {
+            const bunkerGfx = new PIXI.Graphics();
+            for (const bunker of this.bunkers) {
+                for (const cell of bunker.cells) {
+                    if (!cell.alive) continue;
+                    bunkerGfx.beginFill(0x46c86e);
+                    bunkerGfx.drawRect(cell.x, cell.y, cell.w, cell.h);
+                    bunkerGfx.endFill();
+                    bunkerGfx.beginFill(0x96efb0, 0.55);
+                    bunkerGfx.drawRect(cell.x, cell.y, cell.w, 1);
+                    bunkerGfx.endFill();
+                }
+            }
+            container.addChild(bunkerGfx);
         }
-        container.addChild(bunkerGfx);
 
         for (const a of this.aliens) {
             if (!a.alive) continue;
             const frame = a.anim ? 'b' : 'a';
             const prefix = a.type === 'top' ? 'alien-top' : a.type === 'mid' ? 'alien-mid' : 'alien-bot';
             const ax = a.x + this.formationX;
-            this.blitSprite(container, `${prefix}-${frame}`, ax + a.w / 2, a.y, {
-                fallback: (c, x, y) => this.drawAlienFallback(c, x - a.w / 2, y, a)
+            this.blitSprite(container, `${prefix}-${frame}`, ax + a.w / 2, a.y + a.h / 2, {
+                width: a.w + 2,
+                height: Math.round((a.w + 2) * (32 / 44)),
+                anchorX: 0.5,
+                anchorY: 0.5,
+                fallback: (c, x, y) => this.drawAlienFallback(c, x - a.w / 2, y - a.h / 2, a)
             });
         }
 
         if (this.ufo?.active) {
-            this.blitSprite(container, 'ufo', this.ufo.x + this.ufo.w / 2, this.ufo.y, {
+            this.blitSprite(container, 'ufo', this.ufo.x + this.ufo.w / 2, this.ufo.y + this.ufo.h / 2, {
+                width: this.ufo.w + 4,
+                height: Math.round((this.ufo.w + 4) * (24 / 52)),
+                anchorX: 0.5,
+                anchorY: 0.5,
                 fallback: (c) => this.drawUfoFallback(c, this.ufo)
             });
         }
 
         const blink = this.invincibleMs <= 0 || Math.floor(this.invincibleMs / 120) % 2 === 0;
         if (blink) {
+            // Engine exhaust (stronger while strafing)
+            const exhaust = new PIXI.Graphics();
+            const flicker = 0.55 + 0.45 * Math.sin(this.starPhase * 14);
+            const moving = this.playerMoveDir !== 0;
+            exhaust.beginFill(0xffaa44, moving ? 0.75 * flicker : 0.35 * flicker);
+            exhaust.drawRect(this.player.x - 6, this.player.y + this.player.h / 2 - 1, 4, 5 + (moving ? 3 : 0));
+            exhaust.drawRect(this.player.x + 2, this.player.y + this.player.h / 2 - 1, 4, 5 + (moving ? 3 : 0));
+            exhaust.endFill();
+            exhaust.beginFill(0xfff0a0, moving ? 0.9 * flicker : 0.4 * flicker);
+            exhaust.drawRect(this.player.x - 4, this.player.y + this.player.h / 2, 2, 3 + (moving ? 2 : 0));
+            exhaust.drawRect(this.player.x + 2, this.player.y + this.player.h / 2, 2, 3 + (moving ? 2 : 0));
+            exhaust.endFill();
+            container.addChild(exhaust);
+
             this.blitSprite(container, 'player', this.player.x, this.player.y, {
+                width: this.player.w + 4,
+                height: Math.round((this.player.w + 4) * (32 / 44)),
+                anchorX: 0.5,
                 anchorY: 0.5,
                 fallback: (c) => this.drawPlayerFallback(c)
             });
@@ -753,10 +869,23 @@ class SpaceInvadersGame {
 
         const pb = this.playerBullet;
         if (pb?.active) {
+            const trail = new PIXI.Graphics();
+            trail.beginFill(0xfff6a0, 0.35);
+            trail.drawRect(pb.x - 1, pb.y + pb.h, 2, 10);
+            trail.endFill();
+            trail.beginFill(0xffffff, 0.2);
+            trail.drawRect(pb.x - 2, pb.y + pb.h + 4, 4, 6);
+            trail.endFill();
+            container.addChild(trail);
+
             this.blitSprite(container, 'bullet-player', pb.x, pb.y + pb.h / 2, {
+                width: Math.max(6, pb.w + 2),
+                height: pb.h + 4,
+                anchorX: 0.5,
+                anchorY: 0.5,
                 fallback: (c, x, y) => {
                     const g = new PIXI.Graphics();
-                    g.beginFill(0xffff00);
+                    g.beginFill(0xffff88);
                     g.drawRect(x - pb.w / 2, y - pb.h / 2, pb.w, pb.h);
                     g.endFill();
                     c.addChild(g);
@@ -765,7 +894,17 @@ class SpaceInvadersGame {
         }
 
         for (const b of this.alienBullets) {
+            const trail = new PIXI.Graphics();
+            trail.beginFill(0xff5533, 0.3);
+            trail.drawRect(b.x - 1, b.y - 8, 2, 8);
+            trail.endFill();
+            container.addChild(trail);
+
             this.blitSprite(container, 'bullet-alien', b.x, b.y + b.h / 2, {
+                width: Math.max(6, b.w + 2),
+                height: b.h + 4,
+                anchorX: 0.5,
+                anchorY: 0.5,
                 fallback: (c, x, y) => {
                     const g = new PIXI.Graphics();
                     g.beginFill(0xff6644);
@@ -777,17 +916,34 @@ class SpaceInvadersGame {
         }
 
         for (const ex of this.explosions) {
-            const alpha = Math.max(0, ex.life / ex.maxLife);
+            const t = Math.max(0, ex.life / ex.maxLife);
+            const scale = 0.7 + (1 - t) * 0.9;
             this.blitSprite(container, 'explosion', ex.x, ex.y, {
-                alpha,
+                width: 28 * scale,
+                height: 28 * scale,
+                alpha: Math.min(1, t * 1.25),
+                anchorX: 0.5,
+                anchorY: 0.5,
                 fallback: (c, x, y) => {
                     const g = new PIXI.Graphics();
-                    g.beginFill(0xffaa00, alpha);
-                    g.drawCircle(x, y, 8 * alpha + 2);
+                    g.beginFill(0xffaa00, t);
+                    g.drawCircle(x, y, 10 * scale);
                     g.endFill();
                     c.addChild(g);
                 }
             });
+        }
+
+        // Explosion sparks
+        if (this.fxParticles.length) {
+            const sparkGfx = new PIXI.Graphics();
+            for (const p of this.fxParticles) {
+                const a = Math.max(0, p.life / p.maxLife);
+                sparkGfx.beginFill(p.color, a);
+                sparkGfx.drawRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+                sparkGfx.endFill();
+            }
+            container.addChild(sparkGfx);
         }
     }
 
@@ -835,46 +991,65 @@ class SpaceInvadersGame {
     }
 
     drawMenu(layer) {
+        // Keep the starfield visible under a light veil
+        if (this.staticBg) this.drawStaticBackground(this.staticBg);
+
         const overlay = new PIXI.Graphics();
-        overlay.beginFill(0x000000, 0.55);
+        overlay.beginFill(0x050814, 0.42);
         overlay.drawRect(0, 0, this.width, this.height);
         overlay.endFill();
+        // title plate
+        overlay.beginFill(0x0e1730, 0.72);
+        overlay.drawRoundedRect(this.width / 2 - 210, this.height / 2 - 150, 420, 260, 10);
+        overlay.endFill();
+        overlay.lineStyle(2, 0x3ecfbf, 0.55);
+        overlay.drawRoundedRect(this.width / 2 - 210, this.height / 2 - 150, 420, 260, 10);
         layer.addChild(overlay);
 
-        this.addCenterText(layer, 'STAR SIEGE', 0x00ffcc, 42, -100);
+        this.addCenterText(layer, 'STAR SIEGE', 0x7dffef, 44, -100);
         const best = highScoreManager.getTopScore('space-invaders');
-        this.addCenterText(layer, `BEST: ${Utils.formatScore(best)}`, 0xff66ff, 20, -55);
-        this.addCenterText(layer, '← → Move    SPACE Fire', 0xffffff, 16, 0);
-        this.addCenterText(layer, 'Destroy the invasion · bunkers are thinner now', 0xaaaacc, 16, 28);
-        this.addCenterText(layer, 'PRESS SPACE TO START', 0xffff00, 22, 70);
+        this.addCenterText(layer, `BEST  ${Utils.formatScore(best)}`, 0xd4a0ff, 18, -55);
+        this.addCenterText(layer, '← → Move     SPACE Fire', 0xe8eef8, 16, -5);
+        this.addCenterText(layer, 'Hold the line. Clear every wave.', 0x9aabc4, 15, 28);
+        this.addCenterText(layer, 'PRESS SPACE TO START', 0xffe566, 20, 72);
         if (this.gameState === 'gameOver') {
-            this.addCenterText(layer, 'GAME OVER', 0xff4444, 36, -140);
+            this.addCenterText(layer, 'GAME OVER', 0xff5a5a, 34, -140);
         }
     }
 
     drawPreviewFrame() {
         const ctx = this.ctx;
         if (!ctx) return;
-        ctx.fillStyle = '#000011';
+        ctx.fillStyle = '#070b16';
         ctx.fillRect(0, 0, this.width, this.height);
-        for (let i = 0; i < 20; i++) {
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect((i * 37) % this.width, (i * 23) % this.height, 2, 2);
-        }
-        ctx.fillStyle = '#44ff44';
-        for (let c = 0; c < 6; c++) {
-            ctx.fillRect(30 + c * 18, this.height - 50, 12, 8);
-        }
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillRect(60, 40, 20, 12);
-        ctx.fillRect(100, 40, 20, 12);
-        ctx.fillStyle = '#00ffcc';
+        ctx.fillStyle = 'rgba(26,40,80,0.45)';
         ctx.beginPath();
-        ctx.moveTo(this.width / 2, this.height - 20);
-        ctx.lineTo(this.width / 2 - 12, this.height - 4);
-        ctx.lineTo(this.width / 2 + 12, this.height - 4);
+        ctx.ellipse(this.width * 0.35, 40, 50, 22, 0, 0, Math.PI * 2);
+        ctx.fill();
+        for (let i = 0; i < 24; i++) {
+            ctx.fillStyle = i % 3 === 0 ? '#ffffff' : '#8aa0c8';
+            ctx.fillRect((i * 37) % this.width, (i * 23) % this.height, 1 + (i % 2), 1 + (i % 2));
+        }
+        ctx.fillStyle = '#46c86e';
+        for (let c = 0; c < 5; c++) {
+            ctx.fillRect(28 + c * 16, this.height - 46, 10, 6);
+        }
+        ctx.fillStyle = '#e646c8';
+        ctx.fillRect(48, 28, 18, 12);
+        ctx.fillStyle = '#46b4f0';
+        ctx.fillRect(78, 30, 18, 12);
+        ctx.fillStyle = '#5adc5a';
+        ctx.fillRect(108, 32, 18, 12);
+        ctx.fillStyle = '#40dcd2';
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2, this.height - 22);
+        ctx.lineTo(this.width / 2 - 14, this.height - 6);
+        ctx.lineTo(this.width / 2 + 14, this.height - 6);
         ctx.closePath();
         ctx.fill();
+        ctx.fillStyle = '#ffaa44';
+        ctx.fillRect(this.width / 2 - 6, this.height - 5, 3, 4);
+        ctx.fillRect(this.width / 2 + 3, this.height - 5, 3, 4);
     }
 
     addCenterText(layer, text, color, size, yOff) {

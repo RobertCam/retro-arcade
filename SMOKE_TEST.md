@@ -8,7 +8,10 @@ Run `npm run dev` and open http://localhost:8000 before testing.
 - [ ] High score displays show for each cabinet
 - [ ] SCORES button opens modal with scores (or "No scores yet")
 - [ ] Mute button toggles audio on/off and persists after reload
+- [ ] After first click, lobby chiptune music plays (unless muted)
+- [ ] Opening a game switches to a different theme; Back restores lobby music
 - [ ] Clicking a cabinet opens the game
+- [ ] In-game actions produce clearer SFX (shoot/hit/break/etc., not flat beeps)
 
 ## Per Game (repeat for each of 7 games)
 
@@ -26,9 +29,9 @@ Run `npm run dev` and open http://localhost:8000 before testing.
 1. Neon Shards (breakout) — paddle moves, ball breaks bricks, difficulty selectable
 2. Containment Grid (jezzball) — mouse draws lines, balls bounce
 3. Hyper Runners (micro-racing) — car steers and accelerates
-4. Rise of the Rivets (working-man) — move and jump
-5. Tetra Circuit (tetris) — pieces fall and lock
-6. Mousetrap (mouse-pacman) — maze navigation works
+4. Rivet Rage (rivet-rage) — move, auto-fire, level-up cards, endless waves
+5. Tetra Stack (tetris) — pieces fall and lock
+6. Mousetrap (mouse-pacman) — 3D third-person maze + mini-map; navigation works
 7. Mini Putt (minigolf) — drag to aim and shoot
 
 ## Mobile (optional)

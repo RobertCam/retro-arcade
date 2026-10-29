@@ -30,7 +30,7 @@ See individual README files in each game's asset folder for detailed specificati
 - `assets/games/breakout/README.md`
 - `assets/games/jezzball/README.md`
 - `assets/games/micro-racing/README.md`
-- `assets/games/working-man/README.md`
+- `assets/games/rivet-rage/README.md`
 - `assets/games/tetris/README.md`
 - `assets/games/mouse-pacman/README.md`
 - `assets/games/minigolf/README.md`
@@ -62,7 +62,7 @@ assets/
 │   ├── breakout/
 │   ├── jezzball/
 │   ├── micro-racing/
-│   ├── working-man/
+│   ├── rivet-rage/
 │   ├── tetris/
 │   ├── mouse-pacman/
 │   └── minigolf/
@@ -105,7 +105,7 @@ For each game, ensure:
 2. **Micro Racing** - Car sprites and track elements
 3. **Tetris** - Piece sprites (most visible impact)
 4. **Mouse Pacman** - Character sprites (mouse, cats)
-5. **Working Man** - Character and platform sprites
+5. **Rivet Rage** - Player, enemies, projectiles
 6. **Jezzball** - Ball and wall sprites
 7. **Mini Golf** - Course elements and ball
 

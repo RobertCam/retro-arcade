@@ -1,6 +1,6 @@
 # Tetris Game Assets
 
-Place your Tetris (Tetra Circuit) game assets in this directory.
+Place your Tetris (Tetra Stack) game assets in this directory.
 
 ## Required Assets
 

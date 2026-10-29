@@ -5,6 +5,7 @@ This directory contains all illustrated game assets organized by game and catego
 ## Structure
 
 - `games/` - Game-specific assets organized by game name
+- `shared/` - Cross-game packs (e.g. Poly Haven CC0 textures/models) — see `shared/polyhaven/README.md`
 - `ui/` - Shared UI elements (buttons, menus, score displays)
 - `effects/` - Shared visual effects (particles, overlays)
 

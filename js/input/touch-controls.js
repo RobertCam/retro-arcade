@@ -36,6 +36,15 @@ class TouchControls {
                 <button class="touch-btn touch-action" data-action="hardDrop" aria-label="Hard drop">⬇</button>
             `;
         }
+        if (this.layout === 'arena') {
+            return `
+                <button class="touch-btn touch-left" data-action="left" aria-label="Move left">◀</button>
+                <button class="touch-btn touch-up" data-action="up" aria-label="Move up">▲</button>
+                <button class="touch-btn touch-down" data-action="down" aria-label="Move down">▼</button>
+                <button class="touch-btn touch-right" data-action="right" aria-label="Move right">▶</button>
+                <button class="touch-btn touch-action" data-action="action" aria-label="Start or pause">⏯</button>
+            `;
+        }
         return '';
     }
 

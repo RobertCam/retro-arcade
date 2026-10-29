@@ -2,38 +2,69 @@
 let currentGameInstance = null;
 let lobbyAmbientStarted = false;
 
+function isInGameView() {
+    return !!document.querySelector('.game-container');
+}
+
 function ensureLobbyAmbient() {
-    if (lobbyAmbientStarted) return;
-    lobbyAmbientStarted = true;
-    if (typeof audioManager !== 'undefined') audioManager.playLobbyAmbient();
+    // Never start/restart lobby music while a game is open
+    if (isInGameView()) return;
+    if (typeof audioManager === 'undefined') return;
+    // Browsers block audio until a user gesture — unlock then play
+    audioManager.unlock().then(() => {
+        if (isInGameView()) return;
+        if (audioManager.isMuted() || audioManager.isMusicMuted()) return;
+        audioManager.playLobbyAmbient();
+        lobbyAmbientStarted = true;
+    });
+}
+
+/** Start lobby music on first lobby interaction (autoplay policies block true on-load audio). */
+function setupLobbyMusicOnGesture() {
+    const maybeStart = (e) => {
+        if (isInGameView()) return;
+        // Opening a cabinet goes straight to game music — don't prime lobby first
+        if (e && e.target && e.target.closest) {
+            const cabinet = e.target.closest('.arcade-cabinet');
+            if (cabinet && !e.target.closest('.scores-btn')) return;
+        }
+        ensureLobbyAmbient();
+    };
+
+    document.addEventListener('pointerdown', maybeStart);
+    document.addEventListener('keydown', maybeStart);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     initBreakout();
     initJezzball();
-    initWorkingMan();
+    initRivetRage();
     initTetris();
     initMousePacman();
     initMinigolf();
     initSpaceInvaders();
+    initCircuitBreaker();
 
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
-    highScoreManager.updateDisplay('working-man');
+    highScoreManager.updateDisplay('rivet-rage');
     highScoreManager.updateDisplay('tetris');
     highScoreManager.updateDisplay('mouse-pacman');
     highScoreManager.updateDisplay('minigolf');
     highScoreManager.updateDisplay('space-invaders');
+    highScoreManager.updateDisplay('circuit-breaker');
 
     setupAudioControls();
+    setupLobbyMusicOnGesture();
 
     const arcadeCabinets = document.querySelectorAll('.arcade-cabinet');
     arcadeCabinets.forEach(cabinet => {
         cabinet.addEventListener('click', function(e) {
             if (e.target.classList.contains('scores-btn')) return;
+            // Don't start lobby music here — openGame switches to the game theme
             audioManager.unlock().then(() => {
-                ensureLobbyAmbient();
                 audioManager.playSfx('click');
+                audioManager.preloadMusicThemes();
             });
             openGame(this.dataset.game);
         });
@@ -84,22 +115,43 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function setupAudioControls() {
     const muteBtn = document.getElementById('mute-btn');
+    const musicMuteBtn = document.getElementById('music-mute-btn');
     if (!muteBtn) return;
 
-    const updateLabel = () => {
+    const updateLabels = () => {
         muteBtn.textContent = audioManager.isMuted() ? '🔇' : '🔊';
         muteBtn.setAttribute('aria-label', audioManager.isMuted() ? 'Unmute' : 'Mute');
+        muteBtn.classList.toggle('is-off', audioManager.isMuted());
+        if (musicMuteBtn) {
+            musicMuteBtn.textContent = audioManager.isMusicMuted() ? '🎶' : '🎵';
+            musicMuteBtn.setAttribute(
+                'aria-label',
+                audioManager.isMusicMuted() ? 'Unmute music' : 'Mute music'
+            );
+            musicMuteBtn.classList.toggle('is-off', audioManager.isMusicMuted());
+        }
     };
 
-    updateLabel();
+    updateLabels();
     muteBtn.addEventListener('click', () => {
         audioManager.unlock().then(() => {
             ensureLobbyAmbient();
             audioManager.toggleMute();
-            updateLabel();
-            audioManager.playSfx('click');
+            updateLabels();
+            if (!audioManager.isMuted()) audioManager.playSfx('click');
         });
     });
+
+    if (musicMuteBtn) {
+        musicMuteBtn.addEventListener('click', () => {
+            audioManager.unlock().then(() => {
+                ensureLobbyAmbient();
+                audioManager.toggleMusicMute();
+                updateLabels();
+                if (!audioManager.isMuted()) audioManager.playSfx('click');
+            });
+        });
+    }
 }
 
 function showGameLoading() {
@@ -130,6 +182,17 @@ function openGame(gameName) {
 
     document.querySelector('.arcade-lobby').style.display = 'none';
     showGameLoading();
+
+    if (typeof audioManager !== 'undefined') {
+        // Stop lobby immediately (sync), then start game theme after unlock
+        audioManager.stopMusic();
+        audioManager.activeTheme = gameName;
+        audioManager.unlock().then(() => {
+            // Bail if user already left this game
+            if (!isInGameView()) return;
+            audioManager.playGameMusic(gameName);
+        });
+    }
 
     const gameContainer = document.createElement('div');
     gameContainer.className = 'game-container';
@@ -183,25 +246,35 @@ function closeGame() {
     hideGameLoading();
     document.querySelector('.arcade-lobby').style.display = 'flex';
 
+    if (typeof audioManager !== 'undefined') {
+        audioManager.stopMusic();
+        lobbyAmbientStarted = true;
+        audioManager.unlock().then(() => {
+            if (isInGameView()) return;
+            audioManager.playLobbyAmbient();
+        });
+    }
+
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
-    highScoreManager.updateDisplay('working-man');
+    highScoreManager.updateDisplay('rivet-rage');
     highScoreManager.updateDisplay('tetris');
     highScoreManager.updateDisplay('mouse-pacman');
     highScoreManager.updateDisplay('minigolf');
     highScoreManager.updateDisplay('space-invaders');
+    highScoreManager.updateDisplay('circuit-breaker');
 }
 
 function getGameTitle(gameName) {
     const titles = {
         'breakout': 'Neon Shards',
         'jezzball': 'Containment Grid',
-        'working-man': 'Rise of the Rivets',
-        'workingMan': 'Rise of the Rivets',
-        'tetris': 'Tetra Circuit',
+        'rivet-rage': 'Rivet Rage',
+        'tetris': 'Tetra Stack',
         'mouse-pacman': 'Mousetrap',
         'minigolf': 'Mini Golf',
-        'space-invaders': 'Star Siege'
+        'space-invaders': 'Star Siege',
+        'circuit-breaker': 'Circuit Breaker'
     };
     return titles[gameName] || 'Game';
 }
@@ -209,13 +282,13 @@ function getGameTitle(gameName) {
 function getGameControls(gameName) {
     const controls = {
         'breakout': 'Arrow Keys: Move paddle | Space: Start/Pause | P: Pause | 1-3: Difficulty',
-        'jezzball': 'Mouse: Draw lines | Space: Start | R: Reset',
-        'workingMan': 'Arrow Keys: Move | Space: Jump | R: Reset',
-        'working-man': 'Arrow Keys: Move | Space: Jump | R: Reset',
+        'jezzball': 'Mouse: Draw lines | Control: Change line direction | Space: Start | R: Reset',
+        'rivet-rage': 'Arrows/WASD: Move | Auto-aim fire | 1-3: Level-up pick | Space: Pause | R: Reset',
         'tetris': 'Arrow Keys: Move/Rotate | Down: Soft Drop | Space: Hard Drop | X: Rotate | P: Pause | R: Reset',
-        'mouse-pacman': 'Arrow Keys: Move | Space: Start/Pause | P: Pause | R: Reset',
+        'mouse-pacman': '← → / A D: Turn | ↓ / S: Reverse | ↑ hold lane | Space: Start/Pause | P: Pause | R: Reset',
         'minigolf': 'Mouse: Drag from ball to aim and set power | Release to shoot | Space: Start | P: Pause',
-        'space-invaders': '← →: Move | Space: Fire | P: Pause | R: Restart'
+        'space-invaders': '← →: Move | Space: Fire | P: Pause | R: Restart',
+        'circuit-breaker': 'Click: Rotate breaker | Arrows: Select | X/R: Rotate | Enter: Throw early | P: Pause'
     };
     return controls[gameName] || 'Check game instructions';
 }
@@ -233,8 +306,8 @@ function initializeGame(gameName) {
         case 'jezzball':
             currentGameInstance = new JezzballGame(canvas);
             break;
-        case 'working-man':
-            currentGameInstance = new WorkingManGame(canvas);
+        case 'rivet-rage':
+            currentGameInstance = new RivetRageGame(canvas);
             break;
         case 'tetris':
             currentGameInstance = new TetrisGame(canvas);
@@ -247,6 +320,9 @@ function initializeGame(gameName) {
             break;
         case 'space-invaders':
             currentGameInstance = new SpaceInvadersGame(canvas);
+            break;
+        case 'circuit-breaker':
+            currentGameInstance = new CircuitBreakerGame(canvas);
             break;
     }
 
@@ -290,6 +366,28 @@ function setupTouchControlsForGame(gameName, game) {
             if (action === 'right') game.keys['ArrowRight'] = false;
             if (action === 'down') game.keys['ArrowDown'] = false;
             if (action === 'rotate') game.keys['KeyX'] = false;
+        });
+    }
+
+    if (gameName === 'rivet-rage') {
+        game.touchControls = new TouchControls(wrapper, 'arena');
+        game.touchControls.on('onDown', (action) => {
+            if (action === 'left') game.keys['ArrowLeft'] = true;
+            if (action === 'right') game.keys['ArrowRight'] = true;
+            if (action === 'up') game.keys['ArrowUp'] = true;
+            if (action === 'down') game.keys['ArrowDown'] = true;
+            if (action === 'action') {
+                if (game.gameState === 'menu' || game.gameState === 'gameOver') game.startGame();
+                else if (game.gameState === 'playing') game.gameState = 'paused';
+                else if (game.gameState === 'paused') game.gameState = 'playing';
+                else if (game.gameState === 'levelup') game.pickCard(0);
+            }
+        });
+        game.touchControls.on('onUp', (action) => {
+            if (action === 'left') game.keys['ArrowLeft'] = false;
+            if (action === 'right') game.keys['ArrowRight'] = false;
+            if (action === 'up') game.keys['ArrowUp'] = false;
+            if (action === 'down') game.keys['ArrowDown'] = false;
         });
     }
 }

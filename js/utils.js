@@ -72,11 +72,12 @@ class HighScoreManager {
             breakout: [],
             jezzball: [],
             racing: [],
-            workingMan: [],
+            'rivet-rage': [],
             tetris: [],
             'mouse-pacman': [],
             minigolf: [],
-            'space-invaders': []
+            'space-invaders': [],
+            'circuit-breaker': []
         };
     }
     

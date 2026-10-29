@@ -1,26 +1,18 @@
-# Audio Assets
+# Audio
 
-Optional WAV files for the audio system. When files are missing, procedural Web Audio tones are used instead.
+## Music
 
-## Structure
+Per-game MP3 loops (CC0, ~1.5–4 minutes). Loaded by theme id:
 
 ```
-assets/audio/
-├── lobby-ambient.wav       # Optional lobby background loop
-├── sfx/
-│   ├── click.wav
-│   ├── start.wav
-│   ├── score.wav
-│   ├── gameOver.wav
-│   └── ...
-└── games/
-    ├── breakout/
-    │   ├── start.wav
-    │   └── ...
-    └── [game-id]/
-        └── [event].wav
+assets/audio/music/{lobby|breakout|jezzball|...}.mp3
+assets/audio/games/{game-id}/music.mp3
 ```
 
-## Usage
+`audioManager.playGameMusic(gameId)` / `playLobbyAmbient()` switch themes. Opening a game stops lobby music and starts that game’s track; Back restores lobby.
 
-Games call `audioManager.playGameSfx('breakout', 'start')` which tries `assets/audio/games/breakout/start.wav` first, then falls back to procedural tones.
+See `CREDITS.md` for sources.
+
+## SFX
+
+Kenney CC0 OGGs under `sfx/` and `games/{id}/`, with procedural fallback.

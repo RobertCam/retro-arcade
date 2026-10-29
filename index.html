@@ -5,13 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Retro Arcade</title>
     <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
     <div class="arcade-lobby">
         <header class="lobby-header">
             <div class="lobby-header-row">
                 <h1>🎮 RETRO ARCADE</h1>
-                <button id="mute-btn" class="mute-btn" aria-label="Mute">🔊</button>
+                <div class="audio-controls">
+                    <button id="music-mute-btn" class="mute-btn" aria-label="Mute music" title="Toggle music">🎵</button>
+                    <button id="mute-btn" class="mute-btn" aria-label="Mute" title="Toggle all sound">🔊</button>
+                </div>
             </div>
             <p>Choose your game • No quarters needed</p>
         </header>
@@ -51,30 +62,30 @@
                 </div>
             </div>
             
-            <div class="arcade-cabinet" data-game="working-man">
+            <div class="arcade-cabinet" data-game="rivet-rage">
                 <div class="cabinet-marquee">
-                    <div class="marquee-text">RISE OF THE RIVETS</div>
+                    <div class="marquee-text">RIVET RAGE</div>
                 </div>
                 <div class="cabinet-screen">
                     <div class="game-cover-art">
-                        <img src="images/Rise of the rivets cover.png" alt="Rise of the Rivets" class="cover-image">
+                        <img src="images/Rise of the rivets cover.png" alt="Rivet Rage" class="cover-image">
                     </div>
                 </div>
                 <div class="cabinet-controls">
                     <div class="high-score-display">
-                        <div class="top-score">TOP: <span id="working-man-score">0</span></div>
-                        <button class="scores-btn" data-game="working-man">SCORES</button>
+                        <div class="top-score">TOP: <span id="rivet-rage-score">0</span></div>
+                        <button class="scores-btn" data-game="rivet-rage">SCORES</button>
                     </div>
                 </div>
             </div>
             
             <div class="arcade-cabinet" data-game="tetris">
                 <div class="cabinet-marquee">
-                    <div class="marquee-text">TETRA CIRCUIT</div>
+                    <div class="marquee-text">TETRA STACK</div>
                 </div>
                 <div class="cabinet-screen">
                     <div class="game-cover-art">
-                        <img src="images/Tetra Circuit cover.png" alt="Tetra Circuit" class="cover-image">
+                        <img src="images/Tetra Stack cover.png" alt="Tetra Stack" class="cover-image">
                     </div>
                 </div>
                 <div class="cabinet-controls">
@@ -136,6 +147,24 @@
                     </div>
                 </div>
             </div>
+
+            <div class="arcade-cabinet" data-game="circuit-breaker">
+                <div class="cabinet-marquee">
+                    <div class="marquee-text">CIRCUIT BREAKER</div>
+                </div>
+                <div class="cabinet-screen">
+                    <div class="game-cover-art">
+                        <img src="images/circuit breaker cover.png" alt="Circuit Breaker" class="cover-image"
+                             onerror="this.style.display='none';this.parentElement.style.background='linear-gradient(180deg,#1a1c20 0%,#3a3e44 55%,#2a2e32 100%)'">
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="circuit-breaker-score">0</span></div>
+                        <button class="scores-btn" data-game="circuit-breaker">SCORES</button>
+                    </div>
+                </div>
+            </div>
         </main>
         
         <footer class="lobby-footer">
@@ -178,7 +207,17 @@
         </div>
     </div>
     
-    <!-- PixiJS for WebGL rendering -->
+    <script>
+        window.__threeReadyPromise = Promise.race([
+            new Promise((resolve) => {
+                window.__resolveThreeReady = resolve;
+            }),
+            new Promise((resolve) => setTimeout(resolve, 10000))
+        ]);
+    </script>
+    <script type="module" src="js/graphics/three-bootstrap.js"></script>
+
+    <!-- PixiJS for WebGL rendering (unported games) -->
     <script src="https://pixijs.download/release/pixi.min.js"></script>
     
     <script src="js/utils.js"></script>
@@ -190,20 +229,30 @@
     <script src="js/graphics/asset-manifests.js"></script>
     <script src="js/graphics/sprites.js"></script>
     <script src="js/graphics/game-asset-helper.js"></script>
+    <script src="js/audio/sfx-synth.js"></script>
     <script src="js/audio/game-sound-profiles.js"></script>
+    <script src="js/audio/music-themes.js"></script>
+    <script src="js/audio/procedural-music.js"></script>
     <script src="js/audio/audio-manager.js"></script>
     <script src="js/input/touch-controls.js"></script>
     <script src="js/graphics/themes.js"></script>
     <script src="js/graphics/graphics-core.js"></script>
+    <script src="js/graphics/three-effects.js"></script>
+    <script src="js/graphics/three-sprites.js"></script>
+    <script src="js/graphics/polyhaven-assets.js"></script>
+    <script src="js/graphics/three-graphics-core.js"></script>
     
     <script src="js/games/breakout.js"></script>
     <script src="js/games/jezzball.js"></script>
-    <script src="js/games/working-man.js"></script>
+    <script src="js/games/rivet-rage.js"></script>
     <script src="js/games/tetris.js"></script>
     <script src="js/games/mouse-pacman.js"></script>
     <script src="js/games/minigolf-holes.js"></script>
     <script src="js/games/minigolf.js"></script>
     <script src="js/games/space-invaders.js"></script>
+    <script src="js/games/circuit-breaker-gen.js"></script>
+    <script src="js/games/circuit-breaker-levels.js"></script>
+    <script src="js/games/circuit-breaker.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>

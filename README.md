@@ -7,9 +7,9 @@ A lightweight, performant online retro arcade featuring classic games with moder
 - **Neon Shards** (Breakout) — Smash themed brick fields with power-ups
 - **Containment Grid** (Jezzball) — Draw lines to trap bouncing balls
 - **Hyper Runners** (Micro Racing) — Pseudo-3D Out Run–style racing
-- **Rise of the Rivets** (Working Man) — Platformer with 20 levels
-- **Tetra Circuit** (Tetris) — Classic tetromino puzzle action
-- **Mousetrap** (Mouse Pac-Man) — Maze chase with cats and cheese
+- **Rivet Rage** — Endless top-down auto-aim arena shooter with weapon leveling
+- **Tetra Stack** (Tetris) — Classic tetromino puzzle action
+- **Mousetrap** (Mouse Pac-Man) — 3D third-person maze chase with cats, cheese, and a classic mini-map
 - **Mini Putt** (Mini Golf) — 18-hole mouse-aim golf
 
 ## Features
@@ -17,15 +17,15 @@ A lightweight, performant online retro arcade featuring classic games with moder
 - No accounts required
 - Local high score tracking (top 10 per game)
 - Mobile-responsive lobby with touch controls in select games
-- PixiJS WebGL rendering with procedural graphics and optional illustrated assets
+- PixiJS / Three.js WebGL rendering with procedural graphics and optional illustrated assets
 - Particle effects, screen shake, CRT overlay, and theme support
-- Procedural audio via Web Audio API with mute toggle
+- Procedural chiptune music + layered SFX via Web Audio API with mute toggle
 
 ## Tech Stack
 
 - **Frontend**: Vanilla JavaScript, HTML5 Canvas, CSS3, PixiJS (CDN)
 - **Graphics**: Custom sprite system, asset loader with procedural fallback
-- **Audio**: Web Audio API sound manager
+- **Audio**: Procedural music themes per game + richer synthesized SFX
 - **Storage**: LocalStorage for high scores and settings
 - **Deployment**: Vercel
 
@@ -69,6 +69,7 @@ vercel
 
 ### Containment Grid (Jezzball)
 - **Mouse**: Draw lines
+- **Control**: Change line direction
 - **Space**: Start
 - **R**: Reset
 
@@ -77,12 +78,14 @@ vercel
 - **Space**: Accelerate
 - **R**: Reset
 
-### Rise of the Rivets (Working Man)
-- **Arrow Keys**: Move
-- **Space**: Jump
+### Rivet Rage
+- **Arrow Keys / WASD**: Move
+- **Auto-aim**: Weapons fire at nearest enemies
+- **1 / 2 / 3** (or click): Pick level-up upgrade
+- **Space / P**: Pause
 - **R**: Reset
 
-### Tetra Circuit (Tetris)
+### Tetra Stack (Tetris)
 - **Arrow Keys**: Move / Rotate
 - **Down**: Soft drop
 - **Space**: Hard drop
@@ -90,9 +93,12 @@ vercel
 - **P**: Pause
 
 ### Mousetrap (Mouse Pac-Man)
-- **Arrow Keys**: Move
+- **← → / A D**: Turn left/right (camera-relative); you always run forward
+- **↓ / S**: Reverse immediately
+- **↑ / W**: Cancel a buffered turn / keep lane
 - **Space**: Start / Pause
 - **P**: Pause
+- **Mini-map**: Classic top-down view of you, cats, and cheese
 
 ### Mini Putt (Mini Golf)
 - **Mouse**: Drag from ball to aim and set power

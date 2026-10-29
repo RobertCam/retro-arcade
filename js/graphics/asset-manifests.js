@@ -21,12 +21,14 @@ const ASSET_MANIFESTS = {
         cheese: 'assets/games/mouse-pacman/cheese.png',
         wall: 'assets/games/mouse-pacman/wall.png'
     },
-    'working-man': {
-        player: 'assets/games/working-man/player.png',
-        platform: 'assets/games/working-man/platform.png',
-        ladder: 'assets/games/working-man/ladder.png',
-        barrel: 'assets/games/working-man/barrel.png',
-        rivet: 'assets/games/working-man/rivet.png'
+    'rivet-rage': {
+        player: 'assets/games/rivet-rage/player.png',
+        goon: 'assets/games/rivet-rage/goon.png',
+        bagger: 'assets/games/rivet-rage/bagger.png',
+        bruiser: 'assets/games/rivet-rage/bruiser.png',
+        drone: 'assets/games/rivet-rage/drone.png',
+        projectile: 'assets/games/rivet-rage/projectile.png',
+        obstacle: 'assets/games/rivet-rage/obstacle.png'
     },
     jezzball: {
         ball: 'assets/games/jezzball/ball.png',

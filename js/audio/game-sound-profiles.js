@@ -1,55 +1,300 @@
 /**
- * Per-game procedural sound synthesis parameters.
- * Used when WAV files are missing under assets/audio/games/.
+ * Per-game procedural sound patches.
+ * Prefer layered patches (tone / sweep / noise). Legacy frequency arrays still work.
  */
 const GAME_SOUND_PROFILES = {
-    'working-man': {
-        start: { frequencies: [392, 523], duration: 0.08, type: 'square', gain: 0.1 },
-        jump: { frequencies: [440, 550], duration: 0.06, type: 'sine', gain: 0.1 },
-        land: { frequencies: [180], duration: 0.05, type: 'triangle', gain: 0.08 },
-        throw: { frequencies: [280], duration: 0.05, type: 'square', gain: 0.08 },
-        death: { frequencies: [200, 150], duration: 0.15, type: 'sawtooth', gain: 0.12 }
+    'rivet-rage': {
+        start: {
+            layers: [
+                { kind: 'tone', freq: 220, duration: 0.1, wave: 'square', gain: 0.09 },
+                { kind: 'tone', freq: 330, duration: 0.1, wave: 'square', gain: 0.09, delay: 0.08 },
+                { kind: 'tone', freq: 440, duration: 0.14, wave: 'triangle', gain: 0.1, delay: 0.16 }
+            ]
+        },
+        shoot: {
+            layers: [
+                { kind: 'sweep', freq: 880, endFreq: 220, duration: 0.07, wave: 'square', gain: 0.07 },
+                { kind: 'noise', duration: 0.04, gain: 0.04, band: 2500, filter: 'bandpass' }
+            ]
+        },
+        hit: {
+            layers: [
+                { kind: 'noise', duration: 0.06, gain: 0.1, band: 800, filter: 'bandpass' },
+                { kind: 'sweep', freq: 280, endFreq: 90, duration: 0.08, wave: 'triangle', gain: 0.08 }
+            ]
+        },
+        levelup: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.08, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 659, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.07 },
+                { kind: 'tone', freq: 784, duration: 0.12, wave: 'sine', gain: 0.11, delay: 0.14 }
+            ]
+        },
+        pickup: {
+            layers: [
+                { kind: 'tone', freq: 660, duration: 0.05, wave: 'sine', gain: 0.09 },
+                { kind: 'tone', freq: 990, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.05 }
+            ]
+        },
+        death: {
+            layers: [
+                { kind: 'sweep', freq: 240, endFreq: 60, duration: 0.28, wave: 'sawtooth', gain: 0.12 },
+                { kind: 'noise', duration: 0.22, gain: 0.08, band: 400, filter: 'lowpass', delay: 0.02 }
+            ]
+        }
     },
+
     minigolf: {
-        start: { frequencies: [330, 440], duration: 0.07, type: 'sine', gain: 0.1 },
-        putt: { frequencies: [520], duration: 0.04, type: 'sine', gain: 0.08 },
-        bounce: { frequencies: [380], duration: 0.03, type: 'triangle', gain: 0.06 },
-        sand: { frequencies: [200], duration: 0.05, type: 'triangle', gain: 0.05 },
-        water: { frequencies: [150, 120], duration: 0.1, type: 'sine', gain: 0.08 },
-        sink: { frequencies: [660, 880, 1100], duration: 0.12, type: 'sine', gain: 0.12 }
+        start: {
+            layers: [
+                { kind: 'tone', freq: 330, duration: 0.08, wave: 'sine', gain: 0.09 },
+                { kind: 'tone', freq: 440, duration: 0.1, wave: 'sine', gain: 0.1, delay: 0.08 }
+            ]
+        },
+        putt: {
+            layers: [
+                { kind: 'sweep', freq: 420, endFreq: 180, duration: 0.06, wave: 'sine', gain: 0.09 },
+                { kind: 'noise', duration: 0.03, gain: 0.035, band: 900, filter: 'bandpass' }
+            ]
+        },
+        bounce: {
+            layers: [
+                { kind: 'tone', freq: 520, duration: 0.04, wave: 'triangle', gain: 0.07 },
+                { kind: 'noise', duration: 0.025, gain: 0.03, band: 1800, filter: 'highpass' }
+            ]
+        },
+        sand: {
+            layers: [
+                { kind: 'noise', duration: 0.12, gain: 0.07, band: 700, filter: 'bandpass', q: 0.7 }
+            ]
+        },
+        water: {
+            layers: [
+                { kind: 'noise', duration: 0.14, gain: 0.06, band: 500, filter: 'lowpass' },
+                { kind: 'sweep', freq: 220, endFreq: 90, duration: 0.16, wave: 'sine', gain: 0.07 }
+            ]
+        },
+        sink: {
+            layers: [
+                { kind: 'tone', freq: 660, duration: 0.08, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 880, duration: 0.1, wave: 'sine', gain: 0.1, delay: 0.08 },
+                { kind: 'tone', freq: 1175, duration: 0.14, wave: 'sine', gain: 0.11, delay: 0.16 }
+            ]
+        }
     },
+
     breakout: {
-        start: { frequencies: [440, 554], duration: 0.07, type: 'square', gain: 0.1 },
-        break: { frequencies: [600, 800], duration: 0.05, type: 'square', gain: 0.1 },
-        hit: { frequencies: [350], duration: 0.03, type: 'sine', gain: 0.07 },
-        powerup: { frequencies: [523, 784, 1047], duration: 0.06, type: 'sine', gain: 0.1 }
+        start: {
+            layers: [
+                { kind: 'tone', freq: 440, duration: 0.07, wave: 'square', gain: 0.09 },
+                { kind: 'tone', freq: 554, duration: 0.1, wave: 'square', gain: 0.1, delay: 0.07 }
+            ]
+        },
+        break: {
+            layers: [
+                { kind: 'noise', duration: 0.07, gain: 0.09, band: 2200, filter: 'bandpass' },
+                { kind: 'sweep', freq: 720, endFreq: 240, duration: 0.08, wave: 'square', gain: 0.08 }
+            ]
+        },
+        hit: {
+            layers: [
+                { kind: 'tone', freq: 360, duration: 0.035, wave: 'triangle', gain: 0.08 },
+                { kind: 'noise', duration: 0.025, gain: 0.04, band: 1500, filter: 'highpass' }
+            ]
+        },
+        powerup: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.06, wave: 'sine', gain: 0.09 },
+                { kind: 'tone', freq: 784, duration: 0.07, wave: 'sine', gain: 0.1, delay: 0.06 },
+                { kind: 'tone', freq: 1047, duration: 0.1, wave: 'sine', gain: 0.1, delay: 0.12 }
+            ]
+        }
     },
+
     tetris: {
-        start: { frequencies: [330, 392, 494], duration: 0.08, type: 'square', gain: 0.1 },
-        lock: { frequencies: [220], duration: 0.04, type: 'triangle', gain: 0.07 },
-        lineClear: { frequencies: [523, 659, 784, 1047], duration: 0.1, type: 'sine', gain: 0.12 },
-        levelUp: { frequencies: [440, 554, 659, 880], duration: 0.1, type: 'square', gain: 0.1 }
+        start: {
+            layers: [
+                { kind: 'tone', freq: 330, duration: 0.07, wave: 'square', gain: 0.09 },
+                { kind: 'tone', freq: 392, duration: 0.07, wave: 'square', gain: 0.09, delay: 0.07 },
+                { kind: 'tone', freq: 494, duration: 0.1, wave: 'square', gain: 0.1, delay: 0.14 }
+            ]
+        },
+        lock: {
+            layers: [
+                { kind: 'tone', freq: 180, duration: 0.045, wave: 'triangle', gain: 0.08 },
+                { kind: 'noise', duration: 0.03, gain: 0.03, band: 600, filter: 'lowpass' }
+            ]
+        },
+        lineClear: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.08, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 659, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.07 },
+                { kind: 'tone', freq: 784, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.14 },
+                { kind: 'tone', freq: 1047, duration: 0.14, wave: 'sine', gain: 0.11, delay: 0.21 }
+            ]
+        },
+        levelUp: {
+            layers: [
+                { kind: 'tone', freq: 440, duration: 0.07, wave: 'square', gain: 0.09 },
+                { kind: 'tone', freq: 554, duration: 0.07, wave: 'square', gain: 0.09, delay: 0.07 },
+                { kind: 'tone', freq: 659, duration: 0.07, wave: 'square', gain: 0.09, delay: 0.14 },
+                { kind: 'tone', freq: 880, duration: 0.12, wave: 'square', gain: 0.1, delay: 0.21 }
+            ]
+        }
     },
+
     'mouse-pacman': {
-        start: { frequencies: [500, 650], duration: 0.06, type: 'sine', gain: 0.1 },
-        chomp: { frequencies: [800], duration: 0.03, type: 'square', gain: 0.06 },
-        power: { frequencies: [440, 660, 880], duration: 0.08, type: 'sine', gain: 0.1 },
-        alert: { frequencies: [300, 250], duration: 0.08, type: 'sawtooth', gain: 0.08 }
+        start: {
+            layers: [
+                { kind: 'tone', freq: 500, duration: 0.06, wave: 'sine', gain: 0.09 },
+                { kind: 'tone', freq: 650, duration: 0.09, wave: 'sine', gain: 0.1, delay: 0.06 }
+            ]
+        },
+        chomp: {
+            layers: [
+                { kind: 'sweep', freq: 420, endFreq: 180, duration: 0.05, wave: 'square', gain: 0.07 },
+                { kind: 'tone', freq: 90, duration: 0.04, wave: 'triangle', gain: 0.05 }
+            ]
+        },
+        power: {
+            layers: [
+                { kind: 'tone', freq: 440, duration: 0.07, wave: 'sine', gain: 0.09 },
+                { kind: 'tone', freq: 660, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.07 },
+                { kind: 'tone', freq: 880, duration: 0.12, wave: 'sine', gain: 0.1, delay: 0.14 }
+            ]
+        },
+        alert: {
+            layers: [
+                { kind: 'sweep', freq: 320, endFreq: 180, duration: 0.1, wave: 'sawtooth', gain: 0.08 },
+                { kind: 'sweep', freq: 280, endFreq: 140, duration: 0.1, wave: 'sawtooth', gain: 0.07, delay: 0.09 }
+            ]
+        }
     },
+
     jezzball: {
-        start: { frequencies: [400, 500], duration: 0.07, type: 'square', gain: 0.09 },
-        draw: { frequencies: [600], duration: 0.02, type: 'sine', gain: 0.05 },
-        capture: { frequencies: [523, 659], duration: 0.1, type: 'sine', gain: 0.1 },
-        tick: { frequencies: [880], duration: 0.02, type: 'square', gain: 0.05 }
+        start: {
+            layers: [
+                { kind: 'tone', freq: 400, duration: 0.07, wave: 'square', gain: 0.08 },
+                { kind: 'tone', freq: 500, duration: 0.09, wave: 'square', gain: 0.09, delay: 0.07 }
+            ]
+        },
+        draw: {
+            layers: [
+                { kind: 'tone', freq: 700, duration: 0.02, wave: 'sine', gain: 0.045 }
+            ]
+        },
+        capture: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.09, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 659, duration: 0.12, wave: 'sine', gain: 0.1, delay: 0.08 }
+            ]
+        },
+        tick: {
+            layers: [
+                { kind: 'tone', freq: 980, duration: 0.02, wave: 'square', gain: 0.045 }
+            ]
+        },
+        fail: {
+            layers: [
+                { kind: 'sweep', freq: 240, endFreq: 70, duration: 0.22, wave: 'sawtooth', gain: 0.12 },
+                { kind: 'noise', duration: 0.16, gain: 0.07, band: 350, filter: 'lowpass', delay: 0.03 }
+            ]
+        }
     },
+
     'space-invaders': {
-        start: { frequencies: [330, 440, 550], duration: 0.08, type: 'square', gain: 0.1 },
-        shoot: { frequencies: [880], duration: 0.04, type: 'square', gain: 0.08 },
-        alienHit: { frequencies: [220, 180], duration: 0.08, type: 'sawtooth', gain: 0.1 },
-        bunkerHit: { frequencies: [120], duration: 0.03, type: 'triangle', gain: 0.06 },
-        playerHit: { frequencies: [180, 120, 80], duration: 0.15, type: 'sawtooth', gain: 0.12 },
-        waveClear: { frequencies: [523, 659, 784, 1047], duration: 0.1, type: 'sine', gain: 0.12 },
-        ufo: { frequencies: [140, 180, 220], duration: 0.12, type: 'sine', gain: 0.1 }
+        start: {
+            layers: [
+                { kind: 'tone', freq: 220, duration: 0.08, wave: 'square', gain: 0.09 },
+                { kind: 'tone', freq: 277, duration: 0.08, wave: 'square', gain: 0.09, delay: 0.08 },
+                { kind: 'tone', freq: 330, duration: 0.12, wave: 'square', gain: 0.1, delay: 0.16 }
+            ]
+        },
+        shoot: {
+            layers: [
+                { kind: 'sweep', freq: 980, endFreq: 280, duration: 0.09, wave: 'square', gain: 0.08 },
+                { kind: 'noise', duration: 0.04, gain: 0.03, band: 3000, filter: 'highpass' }
+            ]
+        },
+        alienHit: {
+            layers: [
+                { kind: 'noise', duration: 0.1, gain: 0.1, band: 900, filter: 'bandpass' },
+                { kind: 'sweep', freq: 220, endFreq: 80, duration: 0.12, wave: 'sawtooth', gain: 0.09 }
+            ]
+        },
+        bunkerHit: {
+            layers: [
+                { kind: 'noise', duration: 0.05, gain: 0.07, band: 500, filter: 'lowpass' },
+                { kind: 'tone', freq: 110, duration: 0.04, wave: 'triangle', gain: 0.05 }
+            ]
+        },
+        playerHit: {
+            layers: [
+                { kind: 'sweep', freq: 200, endFreq: 55, duration: 0.25, wave: 'sawtooth', gain: 0.12 },
+                { kind: 'noise', duration: 0.2, gain: 0.09, band: 400, filter: 'lowpass' }
+            ]
+        },
+        waveClear: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.08, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 659, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.07 },
+                { kind: 'tone', freq: 784, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.14 },
+                { kind: 'tone', freq: 1047, duration: 0.14, wave: 'sine', gain: 0.11, delay: 0.21 }
+            ]
+        },
+        ufo: {
+            layers: [
+                { kind: 'sweep', freq: 140, endFreq: 220, duration: 0.14, wave: 'sine', gain: 0.08 },
+                { kind: 'sweep', freq: 220, endFreq: 140, duration: 0.14, wave: 'sine', gain: 0.07, delay: 0.12 }
+            ]
+        }
+    },
+
+    'circuit-breaker': {
+        start: {
+            layers: [
+                { kind: 'tone', freq: 440, duration: 0.07, wave: 'square', gain: 0.09 },
+                { kind: 'tone', freq: 554, duration: 0.07, wave: 'square', gain: 0.09, delay: 0.07 },
+                { kind: 'tone', freq: 660, duration: 0.1, wave: 'square', gain: 0.1, delay: 0.14 }
+            ]
+        },
+        rotate: {
+            layers: [
+                { kind: 'tone', freq: 320, duration: 0.025, wave: 'triangle', gain: 0.06 },
+                { kind: 'noise', duration: 0.02, gain: 0.025, band: 2000, filter: 'highpass' }
+            ]
+        },
+        energize: {
+            layers: [
+                { kind: 'sweep', freq: 180, endFreq: 520, duration: 0.1, wave: 'sawtooth', gain: 0.09 },
+                { kind: 'noise', duration: 0.06, gain: 0.04, band: 1800, filter: 'bandpass' }
+            ]
+        },
+        powerOn: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.09, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 784, duration: 0.14, wave: 'sine', gain: 0.11, delay: 0.08 }
+            ]
+        },
+        tick: {
+            layers: [
+                { kind: 'tone', freq: 880, duration: 0.025, wave: 'square', gain: 0.04 },
+                { kind: 'tone', freq: 660, duration: 0.025, wave: 'square', gain: 0.035, delay: 0.03 }
+            ]
+        },
+        fuseBlow: {
+            layers: [
+                { kind: 'noise', duration: 0.2, gain: 0.12, band: 600, filter: 'bandpass' },
+                { kind: 'sweep', freq: 200, endFreq: 50, duration: 0.22, wave: 'sawtooth', gain: 0.11 }
+            ]
+        },
+        levelClear: {
+            layers: [
+                { kind: 'tone', freq: 659, duration: 0.08, wave: 'sine', gain: 0.1 },
+                { kind: 'tone', freq: 784, duration: 0.08, wave: 'sine', gain: 0.1, delay: 0.08 },
+                { kind: 'tone', freq: 988, duration: 0.14, wave: 'sine', gain: 0.11, delay: 0.16 }
+            ]
+        }
     }
 };
 

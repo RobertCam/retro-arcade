@@ -35,6 +35,8 @@ class JezzballGame {
         this.isDrawing = false;
         this.wallDirection = 'horizontal'; // 'horizontal' or 'vertical'
         this.capturedArea = 0;
+        this.capturedRegions = [];
+        this.capturedDirty = false;
         this.totalArea = this.width * this.height;
         
         // Background pattern system
@@ -51,6 +53,7 @@ class JezzballGame {
         }
         
         // PixiJS sprites (only for main game)
+        this.explosionParticles = [];
         if (!this.isPreview) {
             this.ballSprites = [];
             this.wallSprites = [];
@@ -115,8 +118,10 @@ class JezzballGame {
         const ticker = this.graphics.getTicker();
         if (ticker) {
             // Store the ticker callback so we can remove it later
-            this.tickerCallback = (deltaTime) => {
-                this.gameLoop(deltaTime * (1/60) * 1000); // Convert to milliseconds
+            this.tickerCallback = () => {
+                const now = performance.now();
+                if (!this.lastTime) this.lastTime = now;
+                this.gameLoop(now);
             };
             ticker.add(this.tickerCallback);
         } else {
@@ -220,11 +225,14 @@ class JezzballGame {
     }
     
     createLevel() {
+        this.clearExplosionParticles();
         this.balls = [];
         this.walls = [];
         this.currentWall = null;
         this.isDrawing = false;
         this.capturedArea = 0;
+        this.capturedRegions = [];
+        this.capturedDirty = true;
         
         // Create balls based on level (starts with 2, adds 1 per level, max 50 from level 49+)
         let ballCount = 2 + (this.level - 1);
@@ -307,8 +315,9 @@ class JezzballGame {
                 this.togglePause();
             }
             
-            // Control key to change wall direction
-            if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+            // Control changes the line direction once per press
+            if ((e.code === 'ControlLeft' || e.code === 'ControlRight') && !e.repeat) {
+                e.preventDefault();
                 this.wallDirection = this.wallDirection === 'horizontal' ? 'vertical' : 'horizontal';
             }
         };
@@ -354,6 +363,8 @@ class JezzballGame {
     }
     
     startWall(x, y) {
+        if (this.isPointCaptured(x, y)) return;
+
         this.isDrawing = true;
         if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'draw');
         this.currentWall = {
@@ -386,75 +397,77 @@ class JezzballGame {
     }
     
     update(deltaTime) {
-        if (this.gameState !== 'playing') return;
-        
-        // Update timer
-        const prevSecond = Math.ceil(this.timeLeft);
-        this.timeLeft -= deltaTime / 1000;
-        if (this.timeLeft > 0 && Math.ceil(this.timeLeft) < prevSecond) {
-            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'tick');
-        }
-        if (this.timeLeft <= 0) {
-            this.timeUp();
-            return;
-        }
-        
-        // Update current wall if drawing
-        if (this.isDrawing && this.currentWall) {
-            this.updateWall();
-        }
-        
-        // Update balls
-        for (let ball of this.balls) {
-            ball.x += ball.vx;
-            ball.y += ball.vy;
-            
-            // Bounce off walls (canvas edges)
-            if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= this.width) {
-                ball.vx = -ball.vx;
-                ball.x = Math.max(ball.radius, Math.min(this.width - ball.radius, ball.x));
+        const step = Number.isFinite(deltaTime) ? Math.min(Math.max(deltaTime, 0), 1000) : 0;
+        // Keep fail FX alive even after game over so the line can finish exploding.
+        this.updateExplosionParticles(step);
+
+        if (this.gameState === 'playing') {
+            // Update timer. Clamp so a stalled frame cannot drain the whole clock.
+            const prevSecond = Math.ceil(this.timeLeft);
+            this.timeLeft -= step / 1000;
+            if (this.timeLeft > 0 && Math.ceil(this.timeLeft) < prevSecond && Math.ceil(this.timeLeft) <= 10) {
+                if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'tick');
             }
-            
-            if (ball.y - ball.radius <= 0 || ball.y + ball.radius >= this.height) {
-                ball.vy = -ball.vy;
-                ball.y = Math.max(ball.radius, Math.min(this.height - ball.radius, ball.y));
-            }
-            
-            // Check collision with completed walls
-            for (let wall of this.walls) {
-                if (this.checkBallWallCollision(ball, wall)) {
-                    this.reflectBall(ball, wall);
+            if (this.timeLeft <= 0) {
+                this.timeUp();
+            } else {
+                // Update current wall if drawing
+                if (this.isDrawing && this.currentWall) {
+                    this.updateWall();
                 }
-            }
-            
-            // Check collision with current extending wall
-            if (this.currentWall && this.currentWall.extending) {
-                if (this.checkBallWallCollision(ball, this.currentWall)) {
-                    // Ball hit extending wall - cancel wall and lose life
-                    this.cancelWall();
-                    this.lives--;
-                    if (this.screenEffects && typeof this.screenEffects.flash === 'function') {
-                        this.screenEffects.flash('#ff0000', 10);
+                
+                // Update balls
+                for (let ball of this.balls) {
+                    ball.x += ball.vx;
+                    ball.y += ball.vy;
+                    
+                    // Bounce off walls (canvas edges)
+                    if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= this.width) {
+                        ball.vx = -ball.vx;
+                        ball.x = Math.max(ball.radius, Math.min(this.width - ball.radius, ball.x));
                     }
                     
-                    if (this.lives <= 0) {
-                        this.gameOver();
-                        return;
+                    if (ball.y - ball.radius <= 0 || ball.y + ball.radius >= this.height) {
+                        ball.vy = -ball.vy;
+                        ball.y = Math.max(ball.radius, Math.min(this.height - ball.radius, ball.y));
                     }
+                    
+                    // Check collision with completed walls
+                    for (let wall of this.walls) {
+                        if (this.checkBallWallCollision(ball, wall)) {
+                            this.reflectBall(ball, wall);
+                        }
+                    }
+
+                    // Filled-in territory is solid, so a ball that clips a corner bounces back out
+                    this.resolveBallAgainstCaptured(ball);
+                    
+                    // Check collision with current extending wall
+                    if (this.currentWall && this.currentWall.extending) {
+                        if (this.checkBallWallCollision(ball, this.currentWall)) {
+                            this.cancelWall(ball.x, ball.y);
+                            this.lives--;
+                            
+                            if (this.lives <= 0) {
+                                this.gameOver();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!this.isPreview) {
+                    this.updateBallSprites();
                 }
             }
         }
-        
+
         // Update effects
         if (this.isPreview) {
             if (this.particles) this.particles.update();
             if (this.screenEffects) this.screenEffects.update();
-        } else {
-            // Update sprite positions (only ball positions, walls updated in drawPixi)
-            this.updateBallSprites();
-            if (this.nesEffects && typeof this.nesEffects.update === 'function') {
-                this.nesEffects.update();
-            }
+        } else if (this.nesEffects && typeof this.nesEffects.update === 'function') {
+            this.nesEffects.update();
         }
     }
     
@@ -478,6 +491,11 @@ class JezzballGame {
                     this.currentWall.startX = collision.x;
                     leftStopped = true;
                 }
+                const capturedHit = this.hitCaptured(this.currentWall.startX, this.currentWall.clickY, 'left');
+                if (capturedHit) {
+                    this.currentWall.startX = capturedHit.x;
+                    leftStopped = true;
+                }
                 if (this.currentWall.startX <= 0) {
                     this.currentWall.startX = 0;
                     leftStopped = true;
@@ -492,6 +510,11 @@ class JezzballGame {
                 const collision = this.checkWallCollision(this.currentWall.endX, this.currentWall.clickY, 'right');
                 if (collision) {
                     this.currentWall.endX = collision.x;
+                    rightStopped = true;
+                }
+                const capturedHit = this.hitCaptured(this.currentWall.endX, this.currentWall.clickY, 'right');
+                if (capturedHit) {
+                    this.currentWall.endX = capturedHit.x;
                     rightStopped = true;
                 }
                 if (this.currentWall.endX >= this.width) {
@@ -519,6 +542,11 @@ class JezzballGame {
                     this.currentWall.startY = collision.y;
                     upStopped = true;
                 }
+                const capturedHit = this.hitCaptured(this.currentWall.clickX, this.currentWall.startY, 'up');
+                if (capturedHit) {
+                    this.currentWall.startY = capturedHit.y;
+                    upStopped = true;
+                }
                 if (this.currentWall.startY <= 0) {
                     this.currentWall.startY = 0;
                     upStopped = true;
@@ -533,6 +561,11 @@ class JezzballGame {
                 const collision = this.checkWallCollision(this.currentWall.clickX, this.currentWall.endY, 'down');
                 if (collision) {
                     this.currentWall.endY = collision.y;
+                    downStopped = true;
+                }
+                const capturedHit = this.hitCaptured(this.currentWall.clickX, this.currentWall.endY, 'down');
+                if (capturedHit) {
+                    this.currentWall.endY = capturedHit.y;
                     downStopped = true;
                 }
                 if (this.currentWall.endY >= this.height) {
@@ -597,41 +630,219 @@ class JezzballGame {
     }
     
     calculateCapturedAreas() {
-        // Proper Jezzball logic: flood-fill from each ball to find areas NOT containing balls
-        // Goal: reduce balls to 25% of playing field or less
-        
-        // Create a grid to track captured areas
-        const gridWidth = Math.floor(this.width / 10);
-        const gridHeight = Math.floor(this.height / 10);
-        const capturedGrid = Array(gridHeight).fill().map(() => Array(gridWidth).fill(false));
-        
-        // Flood fill from each ball position to mark areas containing balls
-        for (let ball of this.balls) {
-            const gridX = Math.floor(ball.x / 10);
-            const gridY = Math.floor(ball.y / 10);
-            this.floodFillFromBall(gridX, gridY, capturedGrid, gridWidth, gridHeight);
+        // Flood-fill from every ball. Cells a ball can no longer reach are filled in.
+        const cell = 2;
+        const cols = Math.ceil(this.width / cell);
+        const rows = Math.ceil(this.height / cell);
+        const blocked = new Uint8Array(cols * rows);
+        const reachable = new Uint8Array(cols * rows);
+        const pad = 2;
+
+        for (let i = 0; i < this.walls.length; i++) {
+            const wall = this.walls[i];
+            if (wall.direction === 'horizontal') {
+                const y = wall.startY;
+                this.markBlockedRect(blocked, cols, rows, cell, wall.startX, y - pad, wall.endX, y + pad);
+            } else {
+                const x = wall.startX;
+                this.markBlockedRect(blocked, cols, rows, cell, x - pad, wall.startY, x + pad, wall.endY);
+            }
         }
-        
-        // Count captured areas (areas NOT containing balls)
-        let capturedCells = 0;
-        for (let y = 0; y < gridHeight; y++) {
-            for (let x = 0; x < gridWidth; x++) {
-                if (!capturedGrid[y][x]) {
-                    capturedCells++;
+
+        const stack = [];
+        const push = (x, y) => {
+            if (x < 0 || y < 0 || x >= cols || y >= rows) return false;
+            const index = y * cols + x;
+            if (reachable[index] || blocked[index]) return false;
+            reachable[index] = 1;
+            stack.push(x, y);
+            return true;
+        };
+
+        for (let i = 0; i < this.balls.length; i++) {
+            const ball = this.balls[i];
+            const gx = Math.floor(ball.x / cell);
+            const gy = Math.floor(ball.y / cell);
+            if (push(gx, gy)) continue;
+
+            const maxR = Math.ceil((ball.radius + 6) / cell);
+            let seeded = false;
+            for (let r = 1; r <= maxR && !seeded; r++) {
+                for (let dy = -r; dy <= r && !seeded; dy++) {
+                    for (let dx = -r; dx <= r; dx++) {
+                        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+                        if (push(gx + dx, gy + dy)) {
+                            seeded = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
-        
-        // Calculate percentage of area captured
-        const totalCells = gridWidth * gridHeight;
-        const capturePercentage = (capturedCells / totalCells) * 100;
-        
-        // Update captured area for display
-        this.capturedArea = capturedCells * 100; // Convert grid cells to pixel area
-        
-        // Win condition: 75% of area captured (balls reduced to 25% or less)
-        if (capturePercentage >= 75) {
+
+        while (stack.length > 0) {
+            const y = stack.pop();
+            const x = stack.pop();
+            push(x + 1, y);
+            push(x - 1, y);
+            push(x, y + 1);
+            push(x, y - 1);
+        }
+
+        const consumed = new Uint8Array(cols * rows);
+        const regions = [];
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; ) {
+                const index = y * cols + x;
+                if (consumed[index] || reachable[index] || blocked[index]) {
+                    x++;
+                    continue;
+                }
+
+                let w = 1;
+                while (x + w < cols) {
+                    const next = y * cols + x + w;
+                    if (consumed[next] || reachable[next] || blocked[next]) break;
+                    w++;
+                }
+
+                let h = 1;
+                let growing = true;
+                while (growing && y + h < rows) {
+                    for (let k = 0; k < w; k++) {
+                        const next = (y + h) * cols + x + k;
+                        if (consumed[next] || reachable[next] || blocked[next]) {
+                            growing = false;
+                            break;
+                        }
+                    }
+                    if (growing) h++;
+                }
+
+                for (let yy = 0; yy < h; yy++) {
+                    const row = (y + yy) * cols + x;
+                    for (let xx = 0; xx < w; xx++) consumed[row + xx] = 1;
+                }
+
+                let px = x * cell;
+                let py = y * cell;
+                let pw = w * cell;
+                let ph = h * cell;
+                if (px + pw > this.width) pw = this.width - px;
+                if (py + ph > this.height) ph = this.height - py;
+                if (pw > 0 && ph > 0) {
+                    regions.push({ x: px, y: py, width: pw, height: ph });
+                }
+                x += w;
+            }
+        }
+
+        let area = 0;
+        for (let i = 0; i < regions.length; i++) {
+            area += regions[i].width * regions[i].height;
+        }
+
+        this.capturedRegions = regions;
+        this.capturedArea = area;
+        this.capturedDirty = true;
+
+        if (this.totalArea > 0 && (area / this.totalArea) * 100 >= 75) {
             this.levelUp();
+        }
+    }
+
+    markBlockedRect(blocked, cols, rows, cell, x0, y0, x1, y1) {
+        const left = Math.min(x0, x1);
+        const right = Math.max(x0, x1);
+        const top = Math.min(y0, y1);
+        const bottom = Math.max(y0, y1);
+        const gx0 = Math.max(0, Math.floor(left / cell));
+        const gy0 = Math.max(0, Math.floor(top / cell));
+        const gx1 = Math.min(cols - 1, Math.floor((right - 1e-4) / cell));
+        const gy1 = Math.min(rows - 1, Math.floor((bottom - 1e-4) / cell));
+        if (gx1 < gx0 || gy1 < gy0) return;
+
+        for (let y = gy0; y <= gy1; y++) {
+            const row = y * cols;
+            for (let x = gx0; x <= gx1; x++) blocked[row + x] = 1;
+        }
+    }
+
+    isPointCaptured(x, y) {
+        const regions = this.capturedRegions;
+        if (!regions) return false;
+        for (let i = 0; i < regions.length; i++) {
+            const area = regions[i];
+            if (x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    hitCaptured(x, y, direction) {
+        const regions = this.capturedRegions;
+        if (!regions) return null;
+        for (let i = 0; i < regions.length; i++) {
+            const area = regions[i];
+            const inside = x >= area.x && x <= area.x + area.width &&
+                y >= area.y && y <= area.y + area.height;
+            if (!inside) continue;
+            if (direction === 'left') return { x: area.x + area.width, y: y };
+            if (direction === 'right') return { x: area.x, y: y };
+            if (direction === 'up') return { x: x, y: area.y + area.height };
+            if (direction === 'down') return { x: x, y: area.y };
+        }
+        return null;
+    }
+
+    resolveBallAgainstCaptured(ball) {
+        const regions = this.capturedRegions;
+        if (!regions || regions.length === 0) return;
+
+        const radiusSq = ball.radius * ball.radius;
+        for (let i = 0; i < regions.length; i++) {
+            const area = regions[i];
+            const nearestX = Math.max(area.x, Math.min(ball.x, area.x + area.width));
+            const nearestY = Math.max(area.y, Math.min(ball.y, area.y + area.height));
+            const dx = ball.x - nearestX;
+            const dy = ball.y - nearestY;
+            const distSq = dx * dx + dy * dy;
+            if (distSq >= radiusSq) continue;
+
+            if (distSq === 0) {
+                const left = ball.x - area.x;
+                const right = area.x + area.width - ball.x;
+                const top = ball.y - area.y;
+                const bottom = area.y + area.height - ball.y;
+                const minPen = Math.min(left, right, top, bottom);
+                if (minPen === left) {
+                    ball.x = area.x - ball.radius;
+                    ball.vx = -Math.abs(ball.vx);
+                } else if (minPen === right) {
+                    ball.x = area.x + area.width + ball.radius;
+                    ball.vx = Math.abs(ball.vx);
+                } else if (minPen === top) {
+                    ball.y = area.y - ball.radius;
+                    ball.vy = -Math.abs(ball.vy);
+                } else {
+                    ball.y = area.y + area.height + ball.radius;
+                    ball.vy = Math.abs(ball.vy);
+                }
+                continue;
+            }
+
+            const dist = Math.sqrt(distSq);
+            const nx = dx / dist;
+            const ny = dy / dist;
+            const overlap = ball.radius - dist;
+            ball.x += nx * overlap;
+            ball.y += ny * overlap;
+            const dot = ball.vx * nx + ball.vy * ny;
+            if (dot < 0) {
+                ball.vx -= 2 * dot * nx;
+                ball.vy -= 2 * dot * ny;
+            }
         }
     }
     
@@ -816,11 +1027,200 @@ class JezzballGame {
         return totalArea - ballArea;
     }
     
-    cancelWall() {
+    cancelWall(hitX, hitY) {
+        const wall = this.currentWall;
         this.currentWall = null;
         this.isDrawing = false;
-        if (this.screenEffects && typeof this.screenEffects.shake === 'function') {
-            this.screenEffects.shake(8, 15);
+
+        if (wall) {
+            const impactX = Number.isFinite(hitX) ? hitX : (wall.startX + wall.endX) / 2;
+            const impactY = Number.isFinite(hitY) ? hitY : (wall.startY + wall.endY) / 2;
+            this.explodeWall(wall, impactX, impactY);
+        }
+
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('jezzball', 'fail');
+
+        if (this.screenEffects) {
+            if (typeof this.screenEffects.flash === 'function') {
+                this.screenEffects.flash(0xff3300, 28, 0.55);
+            }
+            if (typeof this.screenEffects.shake === 'function') {
+                this.screenEffects.shake(14, 28);
+            }
+        }
+    }
+
+    explodeWall(wall, hitX, hitY) {
+        const dx = wall.endX - wall.startX;
+        const dy = wall.endY - wall.startY;
+        const length = Math.sqrt(dx * dx + dy * dy) || 1;
+        const ux = dx / length;
+        const uy = dy / length;
+        const nx = -uy;
+        const ny = ux;
+        const colors = [0x00ffff, 0xffffff, 0xffaa33, 0xff5522, 0xffee88];
+
+        // Shatter the line into flying shards along its length.
+        const shardCount = Math.max(12, Math.min(48, Math.floor(length / 14)));
+        for (let i = 0; i < shardCount; i++) {
+            const t = shardCount === 1 ? 0.5 : i / (shardCount - 1);
+            const x = wall.startX + dx * t;
+            const y = wall.startY + dy * t;
+            const toHitX = x - hitX;
+            const toHitY = y - hitY;
+            const dist = Math.sqrt(toHitX * toHitX + toHitY * toHitY);
+            const blast = 2.2 + Math.max(0, 1 - dist / Math.max(length, 1)) * 5;
+            const side = (i % 2 === 0 ? 1 : -1) * (0.6 + Math.random());
+            const along = (Math.random() - 0.5) * 3.5;
+            this.spawnExplosionParticle({
+                x,
+                y,
+                vx: ux * along + nx * side * blast + (Math.random() - 0.5) * 1.5,
+                vy: uy * along + ny * side * blast + (Math.random() - 0.5) * 1.5,
+                life: 420 + Math.random() * 280,
+                size: 5 + Math.random() * 8,
+                length: 10 + Math.random() * 16,
+                rotation: Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.4,
+                spin: (Math.random() - 0.5) * 0.35,
+                color: colors[i % colors.length],
+                kind: 'shard'
+            });
+        }
+
+        // Sparks and embers at the impact point.
+        for (let i = 0; i < 28; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 2 + Math.random() * 7;
+            this.spawnExplosionParticle({
+                x: hitX,
+                y: hitY,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 280 + Math.random() * 260,
+                size: 2 + Math.random() * 3.5,
+                length: 0,
+                rotation: angle,
+                spin: (Math.random() - 0.5) * 0.2,
+                color: i % 3 === 0 ? 0xffffff : (i % 2 === 0 ? 0xffcc33 : 0xff6622),
+                kind: 'spark'
+            });
+        }
+
+        // Expanding shock flash.
+        this.spawnExplosionParticle({
+            x: hitX,
+            y: hitY,
+            vx: 0,
+            vy: 0,
+            life: 320,
+            size: 8,
+            length: 0,
+            rotation: 0,
+            spin: 0,
+            color: 0xffaa44,
+            kind: 'shock'
+        });
+
+        if (this.isPreview && this.particles) {
+            this.particles.explode(hitX, hitY, 18, '#ff6622');
+            this.particles.sparkBurst(hitX, hitY, 24, '#ffff66');
+            this.particles.glowExplosion(hitX, hitY, 12, '#00ffff');
+        }
+    }
+
+    spawnExplosionParticle(data) {
+        let sprite = null;
+        if (!this.isPreview && this.graphics && typeof PIXI !== 'undefined') {
+            sprite = new PIXI.Graphics();
+            if (data.kind === 'shard') {
+                sprite.beginFill(data.color, 1);
+                sprite.drawRect(-data.length / 2, -data.size / 2, data.length, data.size);
+                sprite.endFill();
+            } else if (data.kind === 'shock') {
+                sprite.lineStyle(3, data.color, 0.9);
+                sprite.drawCircle(0, 0, data.size);
+            } else {
+                sprite.beginFill(data.color, 1);
+                sprite.drawCircle(0, 0, data.size);
+                sprite.endFill();
+            }
+            sprite.x = data.x;
+            sprite.y = data.y;
+            sprite.rotation = data.rotation;
+            sprite.alpha = 1;
+            this.graphics.addToLayer(sprite, 'foreground');
+        }
+
+        this.explosionParticles.push({
+            ...data,
+            maxLife: data.life,
+            sprite
+        });
+    }
+
+    updateExplosionParticles(deltaTime) {
+        if (!this.explosionParticles.length) return;
+        const dt = Number.isFinite(deltaTime) ? Math.min(Math.max(deltaTime, 0), 50) : 16;
+
+        for (let i = this.explosionParticles.length - 1; i >= 0; i--) {
+            const p = this.explosionParticles[i];
+            p.life -= dt;
+            p.x += p.vx * (dt / 16);
+            p.y += p.vy * (dt / 16);
+            p.vx *= 0.985;
+            p.vy *= 0.985;
+            p.rotation += p.spin;
+
+            const t = Math.max(0, p.life / p.maxLife);
+            if (p.sprite) {
+                p.sprite.x = p.x;
+                p.sprite.y = p.y;
+                p.sprite.rotation = p.rotation;
+                p.sprite.alpha = Math.min(1, t * 1.35);
+                if (p.kind === 'shock') {
+                    const scale = 1 + (1 - t) * 10;
+                    p.sprite.scale.set(scale);
+                    p.sprite.alpha = t * 0.85;
+                } else if (p.kind === 'spark') {
+                    p.sprite.scale.set(0.6 + t * 0.6);
+                }
+            }
+
+            if (p.life <= 0) {
+                if (p.sprite) {
+                    if (p.sprite.parent) p.sprite.parent.removeChild(p.sprite);
+                    if (typeof p.sprite.destroy === 'function') p.sprite.destroy();
+                }
+                this.explosionParticles.splice(i, 1);
+            }
+        }
+    }
+
+    drawExplosionParticles(ctx) {
+        for (let i = 0; i < this.explosionParticles.length; i++) {
+            const p = this.explosionParticles[i];
+            const t = Math.max(0, p.life / p.maxLife);
+            const hex = '#' + p.color.toString(16).padStart(6, '0');
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation);
+            ctx.globalAlpha = Math.min(1, t * 1.35);
+            if (p.kind === 'shard') {
+                ctx.fillStyle = hex;
+                ctx.fillRect(-p.length / 2, -p.size / 2, p.length, p.size);
+            } else if (p.kind === 'shock') {
+                ctx.strokeStyle = hex;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(0, 0, p.size * (1 + (1 - t) * 10), 0, Math.PI * 2);
+                ctx.stroke();
+            } else {
+                ctx.fillStyle = hex;
+                ctx.beginPath();
+                ctx.arc(0, 0, p.size * (0.6 + t * 0.6), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
         }
     }
     
@@ -1182,31 +1582,35 @@ class JezzballGame {
     
     updateCapturedAreaSprites() {
         if (this.isPreview || !this.graphics) return;
-        
-        // Remove old sprites
+        if (!this.capturedDirty) return;
+
         this.capturedAreaSprites.forEach(sprite => {
             if (sprite && sprite.parent) {
                 sprite.parent.removeChild(sprite);
             }
         });
         this.capturedAreaSprites = [];
-        
-        // Create sprites for captured areas
-        for (let wall of this.walls) {
-            if (wall.capturedAreas) {
-                for (let area of wall.capturedAreas) {
-                    const areaGraphics = new PIXI.Graphics();
-                    areaGraphics.beginFill(0x000000, 1);
-                    areaGraphics.drawRect(0, 0, area.width, area.height);
-                    areaGraphics.endFill();
-                    areaGraphics.x = area.x;
-                    areaGraphics.y = area.y;
-                    
-                    this.graphics.addToLayer(areaGraphics, 'background');
-                    this.capturedAreaSprites.push(areaGraphics);
-                }
-            }
+        this.capturedDirty = false;
+
+        if (!this.capturedRegions || this.capturedRegions.length === 0) return;
+
+        const areaGraphics = new PIXI.Graphics();
+        areaGraphics.beginFill(0x0a3a5c, 1);
+        for (let i = 0; i < this.capturedRegions.length; i++) {
+            const area = this.capturedRegions[i];
+            areaGraphics.drawRect(area.x, area.y, area.width, area.height);
         }
+        areaGraphics.endFill();
+
+        areaGraphics.lineStyle(2, 0x39d6ff, 0.75);
+        for (let i = 0; i < this.capturedRegions.length; i++) {
+            const area = this.capturedRegions[i];
+            if (area.width < 4 || area.height < 4) continue;
+            areaGraphics.drawRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
+        }
+
+        this.graphics.addToLayer(areaGraphics, 'background');
+        this.capturedAreaSprites.push(areaGraphics);
     }
     
     updateCurrentWallSprite() {
@@ -1392,6 +1796,24 @@ class JezzballGame {
         
         // Draw UI
         this.drawUIPixi();
+
+        // Apply screen shake to the playfield during impacts
+        if (this.graphics.container && this.screenEffects && typeof this.screenEffects.getShakeOffset === 'function') {
+            const shake = this.screenEffects.getShakeOffset();
+            this.graphics.container.x = shake.x || 0;
+            this.graphics.container.y = shake.y || 0;
+        }
+    }
+
+    clearExplosionParticles() {
+        for (let i = 0; i < this.explosionParticles.length; i++) {
+            const p = this.explosionParticles[i];
+            if (p.sprite) {
+                if (p.sprite.parent) p.sprite.parent.removeChild(p.sprite);
+                if (typeof p.sprite.destroy === 'function') p.sprite.destroy();
+            }
+        }
+        this.explosionParticles = [];
     }
     
     drawUIPixi() {
@@ -1441,7 +1863,7 @@ class JezzballGame {
             const instructions = [
                 'Capture 75% of the area!',
                 'Left click: Start wall',
-                'Right click or Ctrl: Change direction',
+                'Press Control or right-click: Change line direction',
                 'Press SPACE to start'
             ];
             
@@ -1579,12 +2001,16 @@ class JezzballGame {
         this.ctx.save();
         this.ctx.translate(shake.x, shake.y);
         
-        // Draw captured areas (black fill)
-        this.ctx.fillStyle = '#000000';
-        for (let wall of this.walls) {
-            if (wall.capturedAreas) {
-                for (let area of wall.capturedAreas) {
-                    this.ctx.fillRect(area.x, area.y, area.width, area.height);
+        // Draw space a ball can no longer reach
+        if (this.capturedRegions) {
+            this.ctx.fillStyle = '#0a3a5c';
+            this.ctx.strokeStyle = 'rgba(57, 214, 255, 0.75)';
+            this.ctx.lineWidth = 2;
+            for (let i = 0; i < this.capturedRegions.length; i++) {
+                const area = this.capturedRegions[i];
+                this.ctx.fillRect(area.x, area.y, area.width, area.height);
+                if (area.width >= 4 && area.height >= 4) {
+                    this.ctx.strokeRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
                 }
             }
         }
@@ -1668,6 +2094,7 @@ class JezzballGame {
         this.ctx.restore();
         
         // Draw particles
+        this.drawExplosionParticles(this.ctx);
         if (this.particles && typeof this.particles.draw === 'function') {
             this.particles.draw(this.ctx);
         }
@@ -1736,7 +2163,7 @@ class JezzballGame {
             this.ctx.font = '14px Courier New';
             this.ctx.fillText('Capture 75% of the area!', this.width / 2, this.height / 2 - 20);
             this.ctx.fillText('Left click: Start wall', this.width / 2, this.height / 2);
-            this.ctx.fillText('Right click or Ctrl: Change direction', this.width / 2, this.height / 2 + 20);
+            this.ctx.fillText('Press Control or right-click: Change line direction', this.width / 2, this.height / 2 + 20);
             this.ctx.fillText('Press SPACE to start', this.width / 2, this.height / 2 + 50);
             this.ctx.textAlign = 'left';
         } else if (this.gameState === 'paused') {
@@ -1824,6 +2251,8 @@ class JezzballGame {
             }
         }
         
+        this.clearExplosionParticles();
+
         // Clean up sprites
         if (!this.isPreview) {
             this.ballSprites = [];

@@ -1,284 +1,266 @@
-// Mouse Pac-Man game implementation - PixiJS version
+// Mousetrap — 3D third-person maze chase (Three.js) with classic Pac-Man mini-map
 class MousePacmanGame {
     constructor(canvas) {
         this.canvas = canvas;
-        this.width = canvas.width;
-        
-        // Debug counters
-        this.debugFrameCount = 0;
-        this.debugUpdateCount = 0;
-        this.debugCatStuckCount = {};
-        this.debugLastCatPositions = {};
-        this.height = canvas.height;
-        
-        // Check if this is a preview canvas (smaller)
+        this.width = canvas.width || 800;
+        this.height = canvas.height || 600;
         this.isPreview = this.width < 400;
-        
-        if (this.isPreview) {
-            this.ctx = canvas.getContext('2d');
-            this.graphics = null;
-            this.spriteManager = null;
-            this.nesEffects = null;
-        } else {
-            this.ctx = null;
-            this.graphics = new GraphicsCore(canvas, {
-                width: this.width,
-                height: this.height,
-                backgroundColor: 0x000000,
-                pixelPerfect: true
-            });
-        }
-        
-        // Game state
-        this.gameState = 'menu'; // menu, playing, paused, gameOver, ready
+        this.onReady = null;
+        this.isReady = false;
+        this.isDestroyed = false;
+
+        this.gameState = 'menu';
         this.score = 0;
         this.lives = 3;
         this.level = 1;
         this.highScore = 0;
-        
-        // Maze dimensions (classic Pac-Man: 28x31)
+
+        // Classic Pac-Man proportions: loop corridors, no plazas / cul-de-sacs
         this.mazeCols = 28;
         this.mazeRows = 31;
-        
-        // Calculate tile size to fit maze in canvas
-        if (this.isPreview) {
-            this.tileSize = 6;
-            this.mazeX = 10;
-            this.mazeY = 10;
-        } else {
-            // Leave space for UI at top, fit maze in remaining space
-            // Canvas is 800x600, need to fit 31 rows with UI space
-            const uiSpace = 70;
-            const availableHeight = this.height - uiSpace;
-            const maxTileSize = Math.floor(availableHeight / this.mazeRows);
-            this.tileSize = Math.min(maxTileSize, 16); // Max 16 to ensure it fits
-            
-            this.mazeX = (this.width - this.mazeCols * this.tileSize) / 2;
-            this.mazeY = uiSpace; // Space for score/lives UI
-        }
-        
-        // Maze data: 0=empty, 1=wall, 2=dot, 3=power pellet, 4=ghost house area
+        this.cellSize = 1.85;
+        this.wallHeight = 2.2;
+
         this.maze = [];
-        this.tunnelRow = 14; // Default, will be detected during maze initialization
-        this.mouseStartPos = { x: 14, y: 23 }; // Default, will be set during initialization
-        this.initializeMaze();
-        
-        // Mouse (player) properties - PURE GRID-BASED
-        // Position will be set after maze initialization
+        this.tunnelRow = 14;
+        this.mouseStartPos = { x: 14, y: 23 };
+        this.cheeseCount = 0;
+        this.powerPelletCount = 0;
+        this.initialCheeseCount = 0;
+        this.initialPowerPelletCount = 0;
+
+        // Baselines — mouse stays deliberate; tension comes from routing
+        this.baseMouseDelay = 165;
+        this.baseCatDelay = 310;
+        this.powerModeDuration = 8000;
+
         this.mouse = {
-            x: 14, // Will be set to valid position
-            y: 23, // Will be set to valid position
-            direction: 0, // 0=right, 1=down, 2=left, 3=up
-            nextDirection: 0, // Buffered input direction
-            moveTimer: 0, // Timer for grid-based movement
-            moveDelay: 150, // Milliseconds between moves (lower = faster)
-            mouthFrame: 0, // Animation frame for chomping
-            mouthFrameTime: 0
+            x: 14,
+            y: 23,
+            direction: 3, // start facing up the opening straight
+            nextDirection: 3,
+            moveTimer: 0,
+            moveDelay: this.baseMouseDelay,
+            mouthFrame: 0,
+            mouthFrameTime: 0,
+            worldX: 0,
+            worldZ: 0,
+            facing: 0
         };
-        
-        // Cats (enemies) - 4 cats with different behaviors
+
         this.cats = [];
-        this.catStartPos = { x: 14, y: 14 }; // Ghost house center
-        this.initializeCats();
-        
-        // Set mouse to valid starting position (found during maze init)
-        this.mouse.x = this.mouseStartPos.x;
-        this.mouse.y = this.mouseStartPos.y;
-        
-        // Power pellet mode
         this.powerModeActive = false;
         this.powerModeTimer = 0;
-        this.powerModeDuration = 6000; // 6 seconds
-        
-        // Game timing
+        this.catsEatenThisPower = 0;
+
         this.lastTime = 0;
         this.readyTimer = 0;
-        this.readyDuration = 2000; // 2 seconds "READY!" display
-        
-        // Animation
+        this.readyDuration = 1800;
         this.animationTime = 0;
-        
-        // Effects
-        if (this.isPreview) {
-            this.particles = new ParticleSystem();
-            this.screenEffects = new ScreenEffects(canvas);
-            this.crtFilter = new CRTFilter(canvas);
-        } else {
-            this.particles = null;
-            this.screenEffects = null;
-            this.crtFilter = null;
-        }
-        
-        // PixiJS sprites (only for main game)
-        if (!this.isPreview) {
-            this.mouseSprite = null;
-            this.catSprites = [];
-            this.mazeSprites = [];
-            this.cheeseSprites = [];
-            this.cheeseContainer = null;
-            this.backgroundSprite = null;
-        }
-        
-        // Input
+
         this.keys = {};
+        this.graphics = null;
+        this.world = null;
+        this.mazeGroup = null;
+        this.cheeseGroup = null;
+        this.cheeseMeshes = new Map();
+        this.mouseMesh = null;
+        this.catMeshes = [];
+        this.floorMesh = null;
+        this.overlayEl = null;
+        this.stageEl = null;
+        this.minimapCanvas = null;
+        this.minimapCtx = null;
+        this.tickerCallback = null;
+        this.animationFrameId = null;
+        this.floorGroup = null;
+        this._camPos = null;
+        this._camLook = null;
+        this._camTargetPos = null;
+        this._camTargetLook = null;
+
+        this.initializeMaze();
+        this.initializeCats();
+        this.mouse.x = this.mouseStartPos.x;
+        this.mouse.y = this.mouseStartPos.y;
+        this.syncWorldFromGrid(this.mouse);
+
         this.setupInput();
-        
-        // If preview, draw static preview
+
         if (this.isPreview) {
+            this.ctx = canvas.getContext('2d');
             this.drawPreview();
+            this.markReady();
             return;
         }
-        
-        // Start game loop
-        this.animationFrameId = null;
-        this.isDestroyed = false;
-        this.gameLoop = this.gameLoop.bind(this);
-        
+
+        this.ctx = null;
+        this.graphics = new ThreeGraphicsCore(canvas, {
+            width: this.width,
+            height: this.height,
+            backgroundColor: 0x0b0d14,
+            cameraMode: 'world3d'
+        });
+
         this.initGraphics();
     }
-    
+
+    markReady() {
+        this.isReady = true;
+        queueMicrotask(() => {
+            if (typeof this.onReady === 'function') this.onReady();
+        });
+    }
+
+    async initGraphics() {
+        try {
+            await this.graphics.init();
+            if (!this.graphics?.isInitialized || !window.THREE) {
+                console.error('Mousetrap: Three.js init failed');
+                this.markReady();
+                return;
+            }
+            await this.finishGraphicsInit();
+        } catch (err) {
+            console.error('Mousetrap init failed:', err);
+            this.markReady();
+        }
+    }
+
+    async finishGraphicsInit() {
+        const T = window.THREE;
+        this._camPos = new T.Vector3();
+        this._camLook = new T.Vector3();
+        this._camTargetPos = new T.Vector3();
+        this._camTargetLook = new T.Vector3();
+
+        // Extra warm fill so corridors read clearly behind the mouse
+        const fill = new T.PointLight(0x88aaff, 0.55, 140);
+        fill.position.set(0, 18, 0);
+        this.graphics.scene.add(fill);
+        const warm = new T.PointLight(0xffaa66, 0.4, 100);
+        warm.position.set(12, 10, 20);
+        this.graphics.scene.add(warm);
+
+        this.world = new T.Group();
+        this.world.name = 'mousetrap-world';
+        this.graphics.scene.add(this.world);
+
+        this.buildFloor();
+        this.buildMazeMeshes();
+        this.buildCheeseMeshes();
+        this.buildMouseMesh();
+        this.buildCatMeshes();
+        this.createHudOverlays();
+        this.snapCamera(true);
+
+        this.startGameLoop();
+        this.markReady();
+    }
+
+    startGameLoop() {
+        const ticker = this.graphics.getTicker();
+        if (!ticker) return;
+        this.tickerCallback = (tickerObj) => {
+            if (this.isDestroyed) return;
+            const deltaMs = Math.min(Math.max(tickerObj.deltaTime * 16.67, 1), 100);
+            this.gameLoop(deltaMs);
+        };
+        ticker.add(this.tickerCallback);
+        this.graphics.start();
+    }
+
+    // --- Maze data ---------------------------------------------------------
+
     initializeMaze() {
-        // Classic Pac-Man maze layout (28x31 grid)
-        // Using a simplified ASCII representation, then converting to data structure
         const mazeLayout = this.getClassicMazeLayout();
-        
         this.maze = [];
         this.cheeseCount = 0;
         this.powerPelletCount = 0;
-        
+
         for (let row = 0; row < this.mazeRows; row++) {
             this.maze[row] = [];
+            const line = mazeLayout[row] || '#'.repeat(this.mazeCols);
             for (let col = 0; col < this.mazeCols; col++) {
-                const char = mazeLayout[row][col];
+                const char = line[col] || '#';
                 let cellType = 0;
-                
                 if (char === '#' || char === '=') {
-                    cellType = 1; // Wall
+                    cellType = 1;
                 } else if (char === '.') {
-                    cellType = 2; // Small cheese dot
+                    cellType = 2;
                     this.cheeseCount++;
                 } else if (char === 'o' || char === 'O') {
-                    cellType = 3; // Power pellet
+                    cellType = 3;
                     this.powerPelletCount++;
-                } else if (char === ' ') {
-                    cellType = 0; // Empty corridor
-                } else if (char === 'G') {
-                    cellType = 0; // Ghost house (empty, no dots, but walkable)
                 } else {
                     cellType = 0;
                 }
-                
                 this.maze[row][col] = cellType;
             }
         }
-        
-        // Store initial counts for reset
+
         this.initialCheeseCount = this.cheeseCount;
         this.initialPowerPelletCount = this.powerPelletCount;
-        
-        // Detect tunnel row - look for row with dots and spaces on sides
         this.detectTunnelRow();
-        
-        // Find valid mouse starting position (bottom center, empty cell)
         this.findMouseStartPosition();
     }
-    
+
     detectTunnelRow() {
-        // Look for the tunnel row - this is the row with open corridors on both sides
-        // The tunnel row typically has pattern like "      .            .      "
-        // This means: spaces (0) on left AND right sides, with dots (2) in between, and NO walls blocking the path
         for (let row = 0; row < this.mazeRows; row++) {
-            if (this.maze[row]) {
-                // Check if first 6 columns are all empty (spaces) - left tunnel entrance
-                let leftTunnelOpen = true;
-                for (let col = 0; col <= 5; col++) {
-                    if (this.maze[row][col] === 1) { // Wall blocks tunnel
-                        leftTunnelOpen = false;
-                        break;
-                    }
-                }
-                
-                // Check if last 6 columns are all empty (spaces) - right tunnel entrance
-                let rightTunnelOpen = true;
-                for (let col = this.mazeCols - 6; col < this.mazeCols; col++) {
-                    if (this.maze[row][col] === 1) { // Wall blocks tunnel
-                        rightTunnelOpen = false;
-                        break;
-                    }
-                }
-                
-                // Check if there are dots in the middle (indicates this is the main tunnel row)
-                let hasDots = false;
-                for (let col = 6; col < this.mazeCols - 6; col++) {
-                    if (this.maze[row][col] === 2 || this.maze[row][col] === 3) {
-                        hasDots = true;
-                        break;
-                    }
-                }
-                
-                // Tunnel row has: open left side, open right side, and dots in middle (not blocked by walls)
-                if (leftTunnelOpen && rightTunnelOpen && hasDots) {
-                    this.tunnelRow = row;
-                    return;
+            if (!this.maze[row]) continue;
+            let leftOpen = true;
+            let rightOpen = true;
+            for (let col = 0; col <= 5; col++) {
+                if (this.maze[row][col] === 1) { leftOpen = false; break; }
+            }
+            for (let col = this.mazeCols - 6; col < this.mazeCols; col++) {
+                if (this.maze[row][col] === 1) { rightOpen = false; break; }
+            }
+            let hasDots = false;
+            for (let col = 6; col < this.mazeCols - 6; col++) {
+                if (this.maze[row][col] === 2 || this.maze[row][col] === 3) {
+                    hasDots = true;
+                    break;
                 }
             }
+            if (leftOpen && rightOpen && hasDots) {
+                this.tunnelRow = row;
+                return;
+            }
         }
-        // Fallback to row 14 if not found
         this.tunnelRow = 14;
-        console.warn(`[Tunnel] Tunnel row not detected, using default: ${this.tunnelRow}`);
     }
-    
+
     findMouseStartPosition() {
-        // Find a valid starting position near bottom center
-        // Try positions around (14, 23) first, then nearby positions
         const candidates = [
-            { x: 14, y: 23 },
-            { x: 13, y: 23 },
-            { x: 15, y: 23 },
-            { x: 14, y: 24 },
-            { x: 14, y: 22 },
-            { x: 13, y: 24 },
-            { x: 15, y: 24 }
+            { x: 14, y: 23 }, { x: 13, y: 23 }, { x: 15, y: 23 },
+            { x: 14, y: 22 }, { x: 14, y: 24 }, { x: 13, y: 24 }, { x: 15, y: 24 }
         ];
-        
         for (const pos of candidates) {
-            if (pos.y >= 0 && pos.y < this.mazeRows && 
+            if (pos.y >= 0 && pos.y < this.mazeRows &&
                 pos.x >= 0 && pos.x < this.mazeCols &&
-                this.maze[pos.y] && 
-                this.maze[pos.y][pos.x] !== 1) { // Not a wall
+                this.maze[pos.y] && this.maze[pos.y][pos.x] !== 1) {
                 this.mouseStartPos = { x: pos.x, y: pos.y };
                 return;
             }
         }
-        
-        // Fallback: find any empty cell in bottom half
-        for (let row = this.mazeRows - 1; row >= Math.floor(this.mazeRows / 2); row--) {
-            for (let col = 10; col < 18; col++) {
+        for (let row = this.mazeRows - 2; row >= Math.floor(this.mazeRows / 2); row--) {
+            for (let col = 12; col <= 16; col++) {
                 if (this.maze[row] && this.maze[row][col] !== 1) {
                     this.mouseStartPos = { x: col, y: row };
                     return;
                 }
             }
         }
-        
-        // Ultimate fallback
         this.mouseStartPos = { x: 14, y: 23 };
     }
-    
+
     getClassicMazeLayout() {
-        // Different layouts for different levels
-        const layoutIndex = (this.level - 1) % 2; // Alternate between 2 layouts
-        
-        if (layoutIndex === 0) {
-            return this.getMazeLayout1();
-        } else {
-            return this.getMazeLayout2();
-        }
+        return (this.level - 1) % 2 === 0 ? this.getMazeLayout1() : this.getMazeLayout2();
     }
-    
+
     getMazeLayout1() {
-        // Classic Pac-Man maze layout (28 columns x 31 rows)
-        // # = wall, . = small dot, o = power pellet, space = corridor, G = ghost house
+        // Classic Pac-Man loop geometry (28x31): corridors only, escapes everywhere
         return [
             "############################",
             "#............##............#",
@@ -294,7 +276,7 @@ class MousePacmanGame {
             "     #.##          ##.#     ",
             "     #.## ######## ##.#     ",
             "######.## ######## ##.######",
-            "      .            .      ",
+            "      .              .      ",
             "######.## ######## ##.######",
             "     #.## ######## ##.#     ",
             "     #.##          ##.#     ",
@@ -313,11 +295,8 @@ class MousePacmanGame {
             "############################"
         ];
     }
-    
+
     getMazeLayout2() {
-        // Alternative maze layout (28 columns x 31 rows)
-        // Slightly different arrangement for variety
-        // Removed ghost house (G) since cats don't use it
         return [
             "############################",
             "#............##............#",
@@ -330,7 +309,7 @@ class MousePacmanGame {
             "     #.##          ##.#     ",
             "     #.## ######## ##.#     ",
             "######.## ######## ##.######",
-            "      .            .      ",
+            "      .              .      ",
             "######.## ######## ##.######",
             "     #.## ######## ##.#     ",
             "     #.##          ##.#     ",
@@ -346,171 +325,597 @@ class MousePacmanGame {
             "#.##########.##.##########.#",
             "#..........................#",
             "#.##########################",
+            "############################",
+            "############################",
+            "############################",
             "############################"
         ];
     }
-    
-    initializeCats() {
-        // Simple starting positions - scatter cats around the maze
-        // Use valid corridor positions (not walls or dots)
-        const startPositions = [
-            { x: 13, y: 11, dir: 0 },  // Near center-top, facing right
-            { x: 14, y: 11, dir: 2 },  // Near center-top, facing left
-            { x: 13, y: 20, dir: 0 },  // Near center-bottom, facing right
-            { x: 14, y: 20, dir: 2 }   // Near center-bottom, facing left
-        ];
-        
-        this.cats = startPositions.map((pos, index) => ({
-            x: pos.x, // Grid position only
-            y: pos.y, // Grid position only
-            direction: pos.dir,
-            moveTimer: 0, // Timer for grid-based movement
-            moveDelay: 180 + (index * 10), // Slightly different speeds per cat
-            color: ['#ff0000', '#ffb8ff', '#00ffff', '#ffb851'][index],
-            name: ['Blinky', 'Pinky', 'Inky', 'Clyde'][index],
-            state: 'chase',
-            respawnTimer: null
-        }));
-    }
-    
-    async initGraphics() {
-        if (this.isPreview) return;
-        
-        if (this.graphics && typeof this.graphics.init === 'function') {
-            await this.graphics.init();
-        }
-        
-        if (!this.graphics || !this.graphics.isInitialized) {
-            console.error('Graphics initialization failed, falling back to requestAnimationFrame');
-            this.animationFrameId = requestAnimationFrame(this.gameLoop);
-            return;
-        }
-        
-        if (!this.graphics.app || !this.graphics.app.renderer || !this.graphics.app.ticker) {
-            console.error('Graphics app, renderer, or ticker not available');
-            this.animationFrameId = requestAnimationFrame(this.gameLoop);
-            return;
-        }
-        
-        await this.finishGraphicsInit();
-    }
-    
-    async finishGraphicsInit() {
-        this.spriteManager = new SpriteManager(this.graphics);
-        this.nesEffects = this.graphics.getScreenEffects();
-        this.screenEffects = this.nesEffects;
-        this.gameAssets = new GameAssetHelper(this.spriteManager, 'mouse-pacman');
-        if (this.gameAssets) await this.gameAssets.preloadAll();
-        await this.initSprites();
-        this.startGameLoop();
-        if (typeof this.onReady === 'function') this.onReady();
-    }
-    
-    async initSprites() {
-        if (this.isPreview) return;
-        this.updateMazeSprites();
-        this.updateCheeseSprites();
-        this.updateMouseSprite();
-        this.updateCatSprites();
-    }
-    
-    startGameLoop() {
-        if (this.isPreview) {
-            this.animationFrameId = requestAnimationFrame(this.gameLoop);
-            return;
-        }
-        
-        const ticker = this.graphics.getTicker();
-        if (ticker) {
-            this.tickerCallback = (tickerObj) => {
-                // PixiJS ticker provides deltaTime (1.0 = 1 frame at 60fps = ~16.67ms)
-                // Convert to milliseconds and cap to prevent huge jumps
-                const deltaMs = Math.min(Math.max(tickerObj.deltaTime * 16.67, 1), 100);
-                this.gameLoop(deltaMs);
+
+    getDifficulty() {
+        const level = this.level || 1;
+        if (level <= 1) {
+            return {
+                catCount: 2,
+                catDelay: 340,
+                mouseDelay: 170,
+                powerMs: 8500,
+                introScatterMs: 4500,
+                scatterMs: 3000,
+                chaseMs: 3800,
+                wanderBonus: 0.12
             };
-            ticker.add(this.tickerCallback);
-        } else {
-            console.warn('PixiJS ticker not available, falling back to requestAnimationFrame');
-            this.animationFrameId = requestAnimationFrame(this.gameLoop);
         }
+        if (level === 2) {
+            return {
+                catCount: 3,
+                catDelay: 315,
+                mouseDelay: 160,
+                powerMs: 8000,
+                introScatterMs: 3200,
+                scatterMs: 2400,
+                chaseMs: 4200,
+                wanderBonus: 0.05
+            };
+        }
+        return {
+            catCount: 3,
+            catDelay: Math.max(250, this.baseCatDelay),
+            mouseDelay: Math.max(145, this.baseMouseDelay - (level - 3) * 5),
+            powerMs: 7500,
+            introScatterMs: 2400,
+            scatterMs: 2000,
+            chaseMs: 4800,
+            wanderBonus: 0
+        };
     }
-    
+
+    initializeCats() {
+        const diff = this.getDifficulty();
+        this.powerModeDuration = diff.powerMs;
+
+        // Near ghost-house / top lanes — far from bottom start
+        const roster = [
+            {
+                x: 1, y: 1, dir: 0,
+                personality: this.level <= 1 ? 'roam' : 'chase',
+                color: '#ff5555', name: 'Blinky'
+            },
+            { x: 26, y: 1, dir: 2, personality: 'flank', color: '#ffb8ff', name: 'Pinky' },
+            { x: 14, y: 11, dir: 1, personality: 'roam', color: '#55ffff', name: 'Inky' }
+        ];
+
+        this.cats = roster.slice(0, diff.catCount).map((pos, index) => ({
+            x: pos.x,
+            y: pos.y,
+            direction: pos.dir,
+            moveTimer: 400 + index * 180,
+            moveDelay: diff.catDelay + index * 40,
+            color: pos.color,
+            name: pos.name,
+            personality: pos.personality,
+            state: 'scatter',
+            scatterTimer: diff.introScatterMs + index * 500,
+            respawnTimer: null,
+            worldX: 0,
+            worldZ: 0,
+            facing: this.dirToYaw(pos.dir)
+        }));
+
+        this.cats.forEach((cat) => this.syncWorldFromGrid(cat));
+    }
+
+    // --- World helpers -----------------------------------------------------
+
+    cellToWorld(col, row) {
+        const cs = this.cellSize;
+        return {
+            x: (col - this.mazeCols / 2 + 0.5) * cs,
+            z: (row - this.mazeRows / 2 + 0.5) * cs
+        };
+    }
+
+    syncWorldFromGrid(entity) {
+        const w = this.cellToWorld(entity.x, entity.y);
+        entity.worldX = w.x;
+        entity.worldZ = w.z;
+        entity.facing = this.dirToYaw(entity.direction);
+    }
+
+    dirToYaw(dir) {
+        // 0 right (+X), 1 down (+Z), 2 left (-X), 3 up (-Z)
+        if (dir === 0) return Math.PI / 2;
+        if (dir === 1) return 0;
+        if (dir === 2) return -Math.PI / 2;
+        return Math.PI;
+    }
+
+    dirVector(dir) {
+        if (dir === 0) return { x: 1, z: 0 };
+        if (dir === 1) return { x: 0, z: 1 };
+        if (dir === 2) return { x: -1, z: 0 };
+        return { x: 0, z: -1 };
+    }
+
+    // --- 3D mesh builders --------------------------------------------------
+
+    buildFloor() {
+        const T = window.THREE;
+        if (this.floorGroup) {
+            this.world.remove(this.floorGroup);
+            this.floorGroup.traverse((obj) => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+                    else obj.material.dispose();
+                }
+            });
+        }
+
+        this.floorGroup = new T.Group();
+        const w = this.mazeCols * this.cellSize;
+        const d = this.mazeRows * this.cellSize;
+        const geo = new T.PlaneGeometry(w + 4, d + 4);
+        const mat = new T.MeshStandardMaterial({
+            color: 0x1a1520,
+            roughness: 0.92,
+            metalness: 0.05
+        });
+        const floor = new T.Mesh(geo, mat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = 0;
+        this.floorGroup.add(floor);
+        this.floorMesh = floor;
+
+        const tileGeo = new T.PlaneGeometry(this.cellSize * 0.96, this.cellSize * 0.96);
+        const tileMat = new T.MeshStandardMaterial({
+            color: 0x2a2435,
+            roughness: 0.85,
+            metalness: 0.08
+        });
+        for (let row = 0; row < this.mazeRows; row++) {
+            for (let col = 0; col < this.mazeCols; col++) {
+                if (this.maze[row][col] === 1) continue;
+                const tile = new T.Mesh(tileGeo, tileMat);
+                tile.rotation.x = -Math.PI / 2;
+                const pos = this.cellToWorld(col, row);
+                tile.position.set(pos.x, 0.02, pos.z);
+                this.floorGroup.add(tile);
+            }
+        }
+        this.world.add(this.floorGroup);
+    }
+
+    buildMazeMeshes() {
+        const T = window.THREE;
+        if (this.mazeGroup) {
+            this.world.remove(this.mazeGroup);
+            this.mazeGroup.traverse((obj) => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+                    else obj.material.dispose();
+                }
+            });
+        }
+
+        this.mazeGroup = new T.Group();
+        const wallMat = new T.MeshStandardMaterial({
+            color: 0x8b5a2b,
+            roughness: 0.75,
+            metalness: 0.12
+        });
+        const trimMat = new T.MeshStandardMaterial({
+            color: 0x3d2914,
+            roughness: 0.7,
+            metalness: 0.05
+        });
+        const cs = this.cellSize;
+        const geo = new T.BoxGeometry(cs * 0.95, this.wallHeight, cs * 0.95);
+        const trimGeo = new T.BoxGeometry(cs * 0.98, 0.12, cs * 0.98);
+
+        for (let row = 0; row < this.mazeRows; row++) {
+            for (let col = 0; col < this.mazeCols; col++) {
+                if (this.maze[row][col] !== 1) continue;
+                const pos = this.cellToWorld(col, row);
+                const wall = new T.Mesh(geo, wallMat);
+                wall.position.set(pos.x, this.wallHeight / 2, pos.z);
+                this.mazeGroup.add(wall);
+
+                const trim = new T.Mesh(trimGeo, trimMat);
+                trim.position.set(pos.x, this.wallHeight + 0.02, pos.z);
+                this.mazeGroup.add(trim);
+            }
+        }
+        this.world.add(this.mazeGroup);
+    }
+
+    buildCheeseMeshes() {
+        const T = window.THREE;
+        if (this.cheeseGroup) {
+            this.world.remove(this.cheeseGroup);
+            this.cheeseMeshes.forEach((mesh) => {
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+            });
+            this.cheeseMeshes.clear();
+        }
+
+        this.cheeseGroup = new T.Group();
+        const dotGeo = new T.SphereGeometry(0.18, 10, 8);
+        const powerGeo = new T.SphereGeometry(0.38, 12, 10);
+        const cheeseMat = new T.MeshStandardMaterial({
+            color: 0xffdd44,
+            emissive: 0xaa8800,
+            emissiveIntensity: 0.45,
+            roughness: 0.4
+        });
+        const powerMat = new T.MeshStandardMaterial({
+            color: 0xffee88,
+            emissive: 0xffcc00,
+            emissiveIntensity: 0.8,
+            roughness: 0.35
+        });
+
+        for (let row = 0; row < this.mazeRows; row++) {
+            for (let col = 0; col < this.mazeCols; col++) {
+                const cell = this.maze[row][col];
+                if (cell !== 2 && cell !== 3) continue;
+                const mesh = new T.Mesh(
+                    cell === 3 ? powerGeo : dotGeo,
+                    cell === 3 ? powerMat.clone() : cheeseMat
+                );
+                const pos = this.cellToWorld(col, row);
+                mesh.position.set(pos.x, cell === 3 ? 0.55 : 0.35, pos.z);
+                mesh.userData = { col, row, isPower: cell === 3 };
+                this.cheeseGroup.add(mesh);
+                this.cheeseMeshes.set(`${col},${row}`, mesh);
+            }
+        }
+        this.world.add(this.cheeseGroup);
+    }
+
+    buildMouseMesh() {
+        const T = window.THREE;
+        if (this.mouseMesh) {
+            this.world.remove(this.mouseMesh);
+        }
+
+        const root = new T.Group();
+        const bodyMat = new T.MeshStandardMaterial({ color: 0xb0b0b0, roughness: 0.55 });
+        const darkMat = new T.MeshStandardMaterial({ color: 0x707070, roughness: 0.6 });
+        const pinkMat = new T.MeshStandardMaterial({ color: 0xff9ab5, roughness: 0.5 });
+
+        const body = new T.Mesh(new T.SphereGeometry(0.45, 16, 12), bodyMat);
+        body.scale.set(1.15, 0.85, 1.35);
+        body.position.y = 0.45;
+        root.add(body);
+
+        const head = new T.Mesh(new T.SphereGeometry(0.32, 14, 12), bodyMat);
+        head.position.set(0, 0.55, 0.42);
+        root.add(head);
+
+        const earL = new T.Mesh(new T.SphereGeometry(0.16, 10, 8), darkMat);
+        earL.position.set(-0.22, 0.82, 0.35);
+        root.add(earL);
+        const earR = earL.clone();
+        earR.position.x = 0.22;
+        root.add(earR);
+
+        const earInnerL = new T.Mesh(new T.SphereGeometry(0.08, 8, 6), pinkMat);
+        earInnerL.position.set(-0.22, 0.82, 0.42);
+        root.add(earInnerL);
+        const earInnerR = earInnerL.clone();
+        earInnerR.position.x = 0.22;
+        root.add(earInnerR);
+
+        const nose = new T.Mesh(new T.SphereGeometry(0.07, 8, 6), pinkMat);
+        nose.position.set(0, 0.5, 0.72);
+        root.add(nose);
+
+        const eyeMat = new T.MeshStandardMaterial({ color: 0x111111 });
+        const eyeL = new T.Mesh(new T.SphereGeometry(0.06, 8, 6), eyeMat);
+        eyeL.position.set(-0.12, 0.62, 0.62);
+        root.add(eyeL);
+        const eyeR = eyeL.clone();
+        eyeR.position.x = 0.12;
+        root.add(eyeR);
+
+        const tail = new T.Mesh(
+            new T.CylinderGeometry(0.05, 0.03, 0.9, 6),
+            darkMat
+        );
+        tail.rotation.x = Math.PI / 2.4;
+        tail.position.set(0, 0.4, -0.7);
+        root.add(tail);
+
+        this.mouseMesh = root;
+        this.world.add(root);
+        this.updateMouseMesh(1);
+    }
+
+    buildCatMeshes() {
+        const T = window.THREE;
+        this.catMeshes.forEach((mesh) => {
+            if (mesh.parent) mesh.parent.remove(mesh);
+        });
+        this.catMeshes = [];
+
+        this.cats.forEach((cat) => {
+            const root = new T.Group();
+            const color = parseInt(cat.color.replace('#', ''), 16);
+            const fur = new T.MeshStandardMaterial({ color, roughness: 0.55 });
+            const dark = new T.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 });
+            const pink = new T.MeshStandardMaterial({ color: 0xffb6c1, roughness: 0.5 });
+
+            const body = new T.Mesh(new T.SphereGeometry(0.48, 14, 12), fur);
+            body.scale.set(1.1, 0.85, 1.4);
+            body.position.y = 0.5;
+            root.add(body);
+
+            const head = new T.Mesh(new T.SphereGeometry(0.34, 12, 10), fur);
+            head.position.set(0, 0.7, 0.45);
+            root.add(head);
+
+            const earGeo = new T.ConeGeometry(0.12, 0.28, 6);
+            const earL = new T.Mesh(earGeo, fur);
+            earL.position.set(-0.18, 1.05, 0.4);
+            root.add(earL);
+            const earR = earL.clone();
+            earR.position.x = 0.18;
+            root.add(earR);
+
+            const eyeL = new T.Mesh(new T.SphereGeometry(0.07, 8, 6), new T.MeshStandardMaterial({ color: 0xffffaa }));
+            eyeL.position.set(-0.12, 0.75, 0.7);
+            root.add(eyeL);
+            const eyeR = eyeL.clone();
+            eyeR.position.x = 0.12;
+            root.add(eyeR);
+
+            const pupilL = new T.Mesh(new T.SphereGeometry(0.03, 6, 6), dark);
+            pupilL.position.set(-0.12, 0.75, 0.76);
+            root.add(pupilL);
+            const pupilR = pupilL.clone();
+            pupilR.position.x = 0.12;
+            root.add(pupilR);
+
+            const nose = new T.Mesh(new T.SphereGeometry(0.05, 6, 6), pink);
+            nose.position.set(0, 0.62, 0.78);
+            root.add(nose);
+
+            const tail = new T.Mesh(new T.CylinderGeometry(0.06, 0.04, 0.85, 6), fur);
+            tail.rotation.z = 0.6;
+            tail.rotation.x = Math.PI / 3;
+            tail.position.set(0.15, 0.7, -0.55);
+            root.add(tail);
+
+            root.userData.baseColor = color;
+            root.userData.fur = fur;
+            this.catMeshes.push(root);
+            this.world.add(root);
+        });
+
+        this.updateCatMeshes(1);
+    }
+
+    // --- HUD / mini-map ----------------------------------------------------
+
+    createHudOverlays() {
+        const wrapper = this.canvas.parentElement;
+        if (!wrapper) return;
+
+        const stage = document.createElement('div');
+        stage.className = 'mousetrap-stage';
+        wrapper.insertBefore(stage, this.canvas);
+        stage.appendChild(this.canvas);
+        this.stageEl = stage;
+
+        const map = document.createElement('canvas');
+        map.id = 'mousetrap-minimap';
+        map.className = 'mousetrap-minimap';
+        map.width = 168;
+        map.height = 186;
+        map.setAttribute('aria-label', 'Maze mini-map');
+        stage.appendChild(map);
+        this.minimapCanvas = map;
+        this.minimapCtx = map.getContext('2d');
+
+        const overlay = document.createElement('div');
+        overlay.className = 'mousetrap-overlay';
+        overlay.innerHTML = `
+            <div class="mousetrap-overlay-card">
+                <div class="mousetrap-overlay-title"></div>
+                <div class="mousetrap-overlay-sub"></div>
+            </div>
+        `;
+        stage.appendChild(overlay);
+        this.overlayEl = overlay;
+        this.updateOverlay();
+    }
+
+    updateOverlay() {
+        if (!this.overlayEl) return;
+        const title = this.overlayEl.querySelector('.mousetrap-overlay-title');
+        const sub = this.overlayEl.querySelector('.mousetrap-overlay-sub');
+        if (!title || !sub) return;
+
+        let show = true;
+        if (this.gameState === 'menu') {
+            title.textContent = 'MOUSETRAP';
+            sub.textContent = '← → turn · ↓ reverse · always run forward';
+        } else if (this.gameState === 'ready') {
+            title.textContent = 'READY!';
+            sub.textContent = 'Watch the mini-map for cats';
+        } else if (this.gameState === 'paused') {
+            title.textContent = 'PAUSED';
+            sub.textContent = 'Press P or SPACE to resume';
+        } else if (this.gameState === 'gameOver') {
+            title.textContent = 'GAME OVER';
+            sub.textContent = `Score ${Utils.formatScore(this.score)} · SPACE to retry`;
+        } else {
+            show = false;
+        }
+        this.overlayEl.classList.toggle('visible', show);
+    }
+
+    drawMinimap() {
+        const ctx = this.minimapCtx;
+        if (!ctx || !this.minimapCanvas) return;
+
+        const w = this.minimapCanvas.width;
+        const h = this.minimapCanvas.height;
+        const pad = 6;
+        const cellW = (w - pad * 2) / this.mazeCols;
+        const cellH = (h - pad * 2) / this.mazeRows;
+
+        ctx.fillStyle = '#000008';
+        ctx.fillRect(0, 0, w, h);
+
+        // Border
+        ctx.strokeStyle = '#2121de';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, w - 2, h - 2);
+
+        for (let row = 0; row < this.mazeRows; row++) {
+            for (let col = 0; col < this.mazeCols; col++) {
+                const cell = this.maze[row][col];
+                const x = pad + col * cellW;
+                const y = pad + row * cellH;
+                if (cell === 1) {
+                    ctx.fillStyle = '#2121de';
+                    ctx.fillRect(x, y, cellW + 0.5, cellH + 0.5);
+                } else if (cell === 2) {
+                    ctx.fillStyle = '#ffb8ae';
+                    ctx.fillRect(x + cellW * 0.35, y + cellH * 0.35, cellW * 0.3, cellH * 0.3);
+                } else if (cell === 3) {
+                    ctx.fillStyle = '#ffb8ae';
+                    ctx.beginPath();
+                    ctx.arc(x + cellW / 2, y + cellH / 2, Math.max(2, cellW * 0.35), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        // Cats
+        this.cats.forEach((cat) => {
+            if (!cat || cat.state === 'eaten') return;
+            const x = pad + cat.x * cellW + cellW / 2;
+            const y = pad + cat.y * cellH + cellH / 2;
+            ctx.fillStyle = cat.state === 'frightened' ? '#2121de' : cat.color;
+            ctx.beginPath();
+            ctx.arc(x, y, Math.max(2.5, cellW * 0.45), 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // Mouse
+        const mx = pad + this.mouse.x * cellW + cellW / 2;
+        const my = pad + this.mouse.y * cellH + cellH / 2;
+        ctx.fillStyle = '#ffff00';
+        ctx.beginPath();
+        ctx.arc(mx, my, Math.max(2.8, cellW * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+
+        // Direction wedge
+        const dv = this.dirVector(this.mouse.direction);
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(mx + dv.x * cellW * 0.35, my + dv.z * cellH * 0.35);
+        ctx.lineTo(mx - dv.z * cellW * 0.25, my + dv.x * cellH * 0.25);
+        ctx.lineTo(mx + dv.z * cellW * 0.25, my - dv.x * cellH * 0.25);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // --- Input / game flow -------------------------------------------------
+
     setupInput() {
         this.keydownHandler = (e) => {
-            // Don't handle input if modals are open
             const nameEntryModal = document.getElementById('name-entry-modal');
-            if (nameEntryModal && nameEntryModal.classList.contains('active')) {
-                return;
-            }
-            
+            if (nameEntryModal && nameEntryModal.classList.contains('active')) return;
             if (!this.isPreview) {
                 const activeCanvas = document.getElementById('game-canvas');
                 if (activeCanvas !== this.canvas) return;
             }
-            
+
             this.keys[e.code] = true;
-            
-            // Menu/game controls
+
             if (e.code === 'Space') {
-                if (this.gameState === 'menu') {
+                if (this.gameState === 'menu' || this.gameState === 'gameOver') {
                     this.startGame();
                     e.preventDefault();
-                } else if (this.gameState === 'gameOver') {
-                    this.startGame();
-                    e.preventDefault();
-                } else if (this.gameState === 'playing' || this.gameState === 'ready') {
+                } else if (this.gameState === 'playing' || this.gameState === 'ready' || this.gameState === 'paused') {
                     this.togglePause();
                     e.preventDefault();
                 }
             }
-            
-            if (e.code === 'KeyP' && (this.gameState === 'playing' || this.gameState === 'ready' || this.gameState === 'paused')) {
+
+            if (e.code === 'KeyP' &&
+                (this.gameState === 'playing' || this.gameState === 'ready' || this.gameState === 'paused')) {
                 this.togglePause();
                 e.preventDefault();
             }
-            
-            if (e.code === 'Space' && this.gameState === 'paused') {
-                this.togglePause();
-                e.preventDefault();
-            }
-            
-            if (e.code === 'KeyR' && (this.gameState === 'playing' || this.gameState === 'paused' || this.gameState === 'gameOver' || this.gameState === 'ready')) {
+
+            if (e.code === 'KeyR' &&
+                (this.gameState === 'playing' || this.gameState === 'paused' ||
+                    this.gameState === 'gameOver' || this.gameState === 'ready')) {
                 this.resetGame();
                 e.preventDefault();
             }
-            
-            // Don't handle movement in menu/gameOver
+
             if (this.gameState !== 'playing' && this.gameState !== 'ready') return;
-            
-            // Movement input (buffered)
-            if (e.code === 'ArrowUp') {
-                this.mouse.nextDirection = 3;
+
+            // Camera-relative tank: always run forward; turn / reverse
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+                this.turnMouse(-1);
                 e.preventDefault();
-            } else if (e.code === 'ArrowDown') {
-                this.mouse.nextDirection = 1;
+            } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+                this.turnMouse(1);
                 e.preventDefault();
-            } else if (e.code === 'ArrowLeft') {
-                this.mouse.nextDirection = 2;
+            } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+                this.turnMouse(2);
                 e.preventDefault();
-            } else if (e.code === 'ArrowRight') {
-                this.mouse.nextDirection = 0;
+            } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+                // Keep forward intent (cancel a pending side turn)
+                this.mouse.nextDirection = this.mouse.direction;
                 e.preventDefault();
             }
         };
-        
+
         this.keyupHandler = (e) => {
             if (!this.isPreview) {
                 const activeCanvas = document.getElementById('game-canvas');
                 if (activeCanvas !== this.canvas) return;
             }
-            
             this.keys[e.code] = false;
         };
-        
+
         document.addEventListener('keydown', this.keydownHandler);
         document.addEventListener('keyup', this.keyupHandler);
     }
-    
+
+    /**
+     * Turns are relative to where the mouse is actually facing (camera-forward).
+     * Reverse applies immediately. Side turns apply now if open, else buffer.
+     * @param {number} side -1 left, +1 right, +2 reverse
+     */
+    turnMouse(side) {
+        const mouse = this.mouse;
+        const basis = mouse.direction;
+
+        if (side === 2 || side === -2) {
+            const rev = (basis + 2) % 4;
+            mouse.direction = rev;
+            mouse.nextDirection = rev;
+            return;
+        }
+
+        const desired = (basis + (side === -1 ? 3 : 1)) % 4;
+        mouse.nextDirection = desired;
+        if (this.canMoveInDirection(mouse.x, mouse.y, desired)) {
+            mouse.direction = desired;
+        }
+    }
+
     startGame() {
         this.gameState = 'ready';
         this.score = 0;
@@ -519,45 +924,44 @@ class MousePacmanGame {
         this.readyTimer = 0;
         this.powerModeActive = false;
         this.powerModeTimer = 0;
-        
-        // Reset maze
+        this.baseCatDelay = 310;
+        const diff = this.getDifficulty();
+        this.mouse.moveDelay = diff.mouseDelay;
+        this.powerModeDuration = diff.powerMs;
+
         this.initializeMaze();
-        
-        // Reset mouse position
-        this.mouse.x = 14;
-        this.mouse.y = 23;
-        this.mouse.direction = 0;
+        this.mouse.x = this.mouseStartPos.x;
+        this.mouse.y = this.mouseStartPos.y;
+        this.mouse.direction = 3;
+        this.mouse.nextDirection = 3;
         this.mouse.moveTimer = 0;
-        this.mouse.nextDirection = 0;
-        
-        // Reset cats
+        this.syncWorldFromGrid(this.mouse);
+
         this.initializeCats();
-        
-        if (!this.isPreview) {
-            this.updateMazeSprites();
-            this.updateCheeseSprites();
-            this.updateMouseSprite();
-            this.updateCatSprites();
-        }
+        this.rebuildWorldGeometry();
+        this.snapCamera(true);
+        this.updateOverlay();
+
         if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'start');
     }
-    
+
     resetGame() {
         this.startGame();
     }
-    
+
     togglePause() {
         if (this.gameState === 'playing' || this.gameState === 'ready') {
             this.gameState = 'paused';
         } else if (this.gameState === 'paused') {
             this.gameState = 'playing';
         }
+        this.updateOverlay();
     }
-    
+
     gameOver() {
         if (this.isDestroyed) return;
-        
         this.gameState = 'gameOver';
+        this.updateOverlay();
         if (typeof audioManager !== 'undefined') audioManager.playSfx('gameOver');
 
         const activeCanvas = document.getElementById('game-canvas');
@@ -567,440 +971,23 @@ class MousePacmanGame {
             }
         }
     }
-    
-    // Placeholder methods - will implement next
-    drawPreview() {
-        this.ctx.fillStyle = '#000000';
-        this.ctx.fillRect(0, 0, this.width, this.height);
-        
-        this.ctx.fillStyle = '#ffff00';
-        this.ctx.font = 'bold 16px Courier New';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('MOUSE', this.width / 2, this.height / 2 - 10);
-        this.ctx.fillText('PAC-MAN', this.width / 2, this.height / 2 + 10);
+
+    rebuildWorldGeometry() {
+        if (this.isPreview || !this.world || !window.THREE) return;
+        this.buildFloor();
+        this.buildMazeMeshes();
+        this.buildCheeseMeshes();
+        this.buildCatMeshes();
+        this.updateMouseMesh(1);
+        this.updateCatMeshes(1);
     }
-    
-    updateMazeSprites() {
-        if (this.isPreview || !this.graphics) return;
-        
-        // Remove old maze sprites
-        this.mazeSprites.forEach(sprite => {
-            if (sprite && sprite.parent) {
-                sprite.parent.removeChild(sprite);
-                sprite.destroy();
-            }
-        });
-        this.mazeSprites = [];
-        
-        // House-themed wall colors - wood brown with darker outline
-        const wallColor = 0x8b4513; // Saddle brown (wood)
-        const wallOutline = 0x654321; // Darker brown (wood grain)
-        const wallHighlight = 0xa0522d; // Sienna (wood highlight)
-        const mazeGraphics = new PIXI.Graphics();
-        
-        // Draw walls with house theme (wood planks)
-        for (let row = 0; row < this.mazeRows; row++) {
-            for (let col = 0; col < this.mazeCols; col++) {
-                if (this.maze[row][col] === 1) {
-                    const x = this.mazeX + col * this.tileSize;
-                    const y = this.mazeY + row * this.tileSize;
-                    
-                    // Wood plank effect
-                    mazeGraphics.lineStyle(1, wallOutline, 0.8);
-                    mazeGraphics.beginFill(wallColor);
-                    mazeGraphics.drawRect(x, y, this.tileSize, this.tileSize);
-                    mazeGraphics.endFill();
-                    
-                    // Add wood grain lines
-                    mazeGraphics.lineStyle(0.5, wallHighlight, 0.4);
-                    mazeGraphics.moveTo(x + 1, y + this.tileSize / 3);
-                    mazeGraphics.lineTo(x + this.tileSize - 1, y + this.tileSize / 3);
-                    mazeGraphics.moveTo(x + 1, y + (this.tileSize * 2) / 3);
-                    mazeGraphics.lineTo(x + this.tileSize - 1, y + (this.tileSize * 2) / 3);
-                }
-            }
-        }
-        
-        this.graphics.addToLayer(mazeGraphics, 'background');
-        this.mazeSprites.push(mazeGraphics);
-    }
-    
-    updateCheeseSprites() {
-        if (this.isPreview || !this.graphics || !this.spriteManager) return;
-        
-        // Create container once if needed
-        if (!this.cheeseContainer) {
-            this.cheeseContainer = new PIXI.Container();
-            this.graphics.addToLayer(this.cheeseContainer, 'foreground');
-            this.cheeseSpriteMap = new Map(); // Map of "x,y" to sprite
-        }
-        
-        // Update existing sprites or create new ones - don't recreate every frame
-        const currentCheese = new Set();
-        
-        if (this.maze && this.maze.length > 0) {
-            for (let row = 0; row < Math.min(this.mazeRows, this.maze.length); row++) {
-                if (!this.maze[row]) continue;
-                for (let col = 0; col < Math.min(this.mazeCols, this.maze[row].length); col++) {
-                    const cell = this.maze[row][col];
-                    const key = `${col},${row}`;
-                    
-                    if (cell === 2 || cell === 3) { // Cheese or power pellet
-                        currentCheese.add(key);
-                        
-                        // Create sprite if it doesn't exist
-                        if (!this.cheeseSpriteMap.has(key)) {
-                            const x = this.mazeX + col * this.tileSize + this.tileSize / 2;
-                            const y = this.mazeY + row * this.tileSize + this.tileSize / 2;
-                            
-                            let dot;
-                            if (cell === 2) {
-                                // Larger cheese dots
-                                dot = this.spriteManager.createCircle(Math.max(3, this.tileSize * 0.15), 0xffff00);
-                            } else {
-                                // Larger power pellets
-                                dot = this.spriteManager.createCircle(Math.max(6, this.tileSize * 0.25), 0xffff00);
-                            }
-                            
-                            if (dot) {
-                                dot.x = x;
-                                dot.y = y;
-                                this.cheeseContainer.addChild(dot);
-                                this.cheeseSpriteMap.set(key, dot);
-                            }
-                        }
-                        
-                        // Update power pellet pulse
-                        if (cell === 3) {
-                            const sprite = this.cheeseSpriteMap.get(key);
-                            if (sprite) {
-                                const pulseSize = 4 + Math.sin((this.animationTime || 0) / 200) * 2;
-                                sprite.scale.set(pulseSize / 4);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Remove sprites for collected cheese
-        for (const [key, sprite] of this.cheeseSpriteMap.entries()) {
-            if (!currentCheese.has(key)) {
-                if (sprite && sprite.parent) {
-                    sprite.parent.removeChild(sprite);
-                    sprite.destroy();
-                }
-                this.cheeseSpriteMap.delete(key);
-            }
-        }
-    }
-    
-    updateMouseSprite() {
-        if (this.isPreview || !this.graphics) return;
-        if (!this.mouse) return;
-        
-        // Create sprite once, then just update position
-        if (!this.mouseSprite) {
-            this.createMouseSprite();
-        }
-        
-        const mouse = this.mouse;
-        const targetX = this.mazeX + mouse.x * this.tileSize;
-        const targetY = this.mazeY + mouse.y * this.tileSize;
-        
-        // Smooth interpolation for position
-        const smoothFactor = 0.3; // Adjust for smoothness (lower = smoother but slower)
-        this.mouseSprite.x += (targetX - this.mouseSprite.x) * smoothFactor;
-        this.mouseSprite.y += (targetY - this.mouseSprite.y) * smoothFactor;
-        
-        // Update rotation based on direction
-        const mouseGraphics = this.mouseSprite.children[0];
-        if (mouseGraphics) {
-            let rotation = 0;
-            if (mouse.direction === 1) rotation = Math.PI / 2; // Down
-            else if (mouse.direction === 2) rotation = Math.PI; // Left
-            else if (mouse.direction === 3) rotation = -Math.PI / 2; // Up
-            mouseGraphics.rotation = rotation;
-        }
-    }
-    
-    createMouseSprite() {
-        const centerX = this.tileSize / 2;
-        const centerY = this.tileSize / 2;
-        const bodySize = this.tileSize * 0.6; // Larger mouse
-        
-        // Create mouse sprite container
-        const mouseContainer = new PIXI.Container();
-        
-        // Mouse colors - more realistic mouse colors
-        const mouseBodyColor = 0xa0a0a0; // Light gray
-        const mouseDarkColor = 0x707070; // Darker gray for shading
-        const mouseEarColor = 0x808080; // Gray ears
-        const mouseEarInner = 0xffb6c1; // Light pink inner ears
-        const mouseNose = 0xff69b4; // Bright pink nose
-        
-        // Create graphics once
-        const mouseGraphics = new PIXI.Graphics();
-        mouseGraphics.pivot.set(centerX, centerY);
-        mouseGraphics.x = centerX;
-        mouseGraphics.y = centerY;
-        
-        // Draw body (larger, more mouse-like)
-        mouseGraphics.beginFill(mouseBodyColor);
-        mouseGraphics.drawEllipse(centerX, centerY, bodySize * 0.85, bodySize * 0.65);
-        mouseGraphics.endFill();
-        
-        // Add shading to body
-        mouseGraphics.beginFill(mouseDarkColor, 0.3);
-        mouseGraphics.drawEllipse(centerX - bodySize * 0.1, centerY, bodySize * 0.7, bodySize * 0.5);
-        mouseGraphics.endFill();
-        
-        // Draw larger ears (more prominent)
-        const earSize = bodySize * 0.35;
-        mouseGraphics.beginFill(mouseEarColor);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.35, centerY - bodySize * 0.35, earSize);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.35, centerY - bodySize * 0.35, earSize);
-        mouseGraphics.endFill();
-        
-        // Inner ear (pink, larger)
-        mouseGraphics.beginFill(mouseEarInner);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.35, centerY - bodySize * 0.35, earSize * 0.5);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.35, centerY - bodySize * 0.35, earSize * 0.5);
-        mouseGraphics.endFill();
-        
-        // Draw snout (more pronounced)
-        const snoutX = centerX + bodySize * 0.45;
-        const snoutY = centerY;
-        const mouthOpen = this.mouse.mouthFrame === 1 ? 0.7 : 0.4;
-        
-        // Mouth (chomping animation)
-        mouseGraphics.beginFill(0x000000);
-        mouseGraphics.drawEllipse(snoutX, snoutY, bodySize * 0.35 * mouthOpen, bodySize * 0.25);
-        mouseGraphics.endFill();
-        
-        // Nose (bright pink, larger)
-        mouseGraphics.beginFill(mouseNose);
-        mouseGraphics.drawCircle(snoutX, snoutY - bodySize * 0.12, bodySize * 0.12);
-        mouseGraphics.endFill();
-        
-        // Draw larger, more expressive eyes
-        const eyeSize = Math.max(2, bodySize * 0.12);
-        mouseGraphics.beginFill(0xffffff);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.15, eyeSize);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.15, centerY - bodySize * 0.15, eyeSize);
-        mouseGraphics.endFill();
-        mouseGraphics.beginFill(0x000000);
-        mouseGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.15, eyeSize * 0.6);
-        mouseGraphics.drawCircle(centerX + bodySize * 0.15, centerY - bodySize * 0.15, eyeSize * 0.6);
-        mouseGraphics.endFill();
-        
-        // Draw whiskers (more mouse-like)
-        mouseGraphics.lineStyle(1, mouseDarkColor, 0.6);
-        mouseGraphics.moveTo(snoutX, snoutY - bodySize * 0.05);
-        mouseGraphics.lineTo(snoutX + bodySize * 0.3, snoutY - bodySize * 0.1);
-        mouseGraphics.moveTo(snoutX, snoutY);
-        mouseGraphics.lineTo(snoutX + bodySize * 0.35, snoutY);
-        mouseGraphics.moveTo(snoutX, snoutY + bodySize * 0.05);
-        mouseGraphics.lineTo(snoutX + bodySize * 0.3, snoutY + bodySize * 0.1);
-        
-        // Draw tail (longer, more curved, mouse-like)
-        mouseGraphics.lineStyle(Math.max(2, bodySize * 0.15), mouseDarkColor, 0.8);
-        mouseGraphics.moveTo(centerX - bodySize * 0.4, centerY);
-        mouseGraphics.quadraticCurveTo(
-            centerX - bodySize * 1.2, centerY - bodySize * 0.2,
-            centerX - bodySize * 1.5, centerY - bodySize * 0.5
-        );
-        
-        mouseContainer.addChild(mouseGraphics);
-        
-        // Add to layer once
-        this.graphics.addToLayer(mouseContainer, 'foreground');
-        this.mouseSprite = mouseContainer;
-    }
-    
-    updateCatSprites() {
-        if (this.isPreview || !this.graphics) return;
-        if (!this.cats || this.cats.length === 0) return;
-        
-        // Create cat sprites once if needed
-        if (!this.catSprites || this.catSprites.length === 0) {
-            this.catSprites = [];
-            this.cats.forEach((cat, index) => {
-                if (cat) {
-                    const sprite = this.createCatSprite(cat, index);
-                    this.catSprites.push(sprite);
-                }
-            });
-        }
-        
-        // Update existing cat sprites (reuse, don't recreate)
-        this.cats.forEach((cat, index) => {
-            if (!cat || !this.catSprites[index]) return;
-            
-            const sprite = this.catSprites[index];
-            const targetX = this.mazeX + cat.x * this.tileSize;
-            const targetY = this.mazeY + cat.y * this.tileSize;
-            
-            // Smooth interpolation for position
-            const smoothFactor = 0.25; // Slightly slower than mouse
-            sprite.x += (targetX - sprite.x) * smoothFactor;
-            sprite.y += (targetY - sprite.y) * smoothFactor;
-            
-            // Update visual state
-            const catGraphics = sprite.children[0];
-            if (catGraphics) {
-                // Update color/state
-                catGraphics.clear();
-                const size = this.tileSize - 2;
-                const radius = size / 2;
-                
-                if (cat.state === 'frightened') {
-                    const flashTime = Math.floor(this.animationTime / 200) % 2;
-                    catGraphics.beginFill(flashTime === 0 ? 0x2121de : 0xffffff);
-                } else if (cat.state === 'eaten') {
-                    catGraphics.beginFill(0x000000);
-                } else {
-                    const colorHex = parseInt(cat.color.replace('#', ''), 16);
-                    catGraphics.beginFill(colorHex);
-                }
-                
-                catGraphics.drawCircle(radius, radius, radius);
-                catGraphics.endFill();
-                
-                // Eyes
-                if (cat.state !== 'eaten') {
-                    catGraphics.beginFill(0xffffff);
-                    catGraphics.drawCircle(radius - 3, radius - 2, 2);
-                    catGraphics.drawCircle(radius + 3, radius - 2, 2);
-                    catGraphics.endFill();
-                    catGraphics.beginFill(0x000000);
-                    catGraphics.drawCircle(radius - 3, radius - 2, 1);
-                    catGraphics.drawCircle(radius + 3, radius - 2, 1);
-                    catGraphics.endFill();
-                }
-            }
-        });
-    }
-    
-    createCatSprite(cat, index) {
-        const centerX = this.tileSize / 2;
-        const centerY = this.tileSize / 2;
-        const bodySize = this.tileSize * 0.65; // Larger cats
-        
-        const catContainer = new PIXI.Container();
-        const catGraphics = new PIXI.Graphics();
-        
-        const colorHex = parseInt(cat.color.replace('#', ''), 16);
-        const darkerColor = colorHex * 0.7; // Darker shade for depth
-        
-        // Draw cat body (more cat-like shape - rounded with slight point)
-        catGraphics.beginFill(colorHex);
-        // Main body (rounded rectangle/ellipse)
-        catGraphics.drawEllipse(centerX, centerY, bodySize * 0.75, bodySize * 0.6);
-        catGraphics.endFill();
-        
-        // Add body shading
-        catGraphics.beginFill(darkerColor, 0.4);
-        catGraphics.drawEllipse(centerX - bodySize * 0.1, centerY, bodySize * 0.6, bodySize * 0.5);
-        catGraphics.endFill();
-        
-        // Draw ears (triangular, cat-like)
-        const earSize = bodySize * 0.25;
-        catGraphics.beginFill(colorHex);
-        // Left ear
-        catGraphics.moveTo(centerX - bodySize * 0.25, centerY - bodySize * 0.25);
-        catGraphics.lineTo(centerX - bodySize * 0.5, centerY - bodySize * 0.5);
-        catGraphics.lineTo(centerX - bodySize * 0.15, centerY - bodySize * 0.35);
-        catGraphics.closePath();
-        // Right ear
-        catGraphics.moveTo(centerX + bodySize * 0.25, centerY - bodySize * 0.25);
-        catGraphics.lineTo(centerX + bodySize * 0.5, centerY - bodySize * 0.5);
-        catGraphics.lineTo(centerX + bodySize * 0.15, centerY - bodySize * 0.35);
-        catGraphics.closePath();
-        catGraphics.endFill();
-        
-        // Inner ear (pink)
-        catGraphics.beginFill(0xffb6c1, 0.8);
-        catGraphics.moveTo(centerX - bodySize * 0.25, centerY - bodySize * 0.3);
-        catGraphics.lineTo(centerX - bodySize * 0.4, centerY - bodySize * 0.45);
-        catGraphics.lineTo(centerX - bodySize * 0.2, centerY - bodySize * 0.35);
-        catGraphics.closePath();
-        catGraphics.moveTo(centerX + bodySize * 0.25, centerY - bodySize * 0.3);
-        catGraphics.lineTo(centerX + bodySize * 0.4, centerY - bodySize * 0.45);
-        catGraphics.lineTo(centerX + bodySize * 0.2, centerY - bodySize * 0.35);
-        catGraphics.closePath();
-        catGraphics.endFill();
-        
-        // Draw larger, more cat-like eyes
-        const eyeSize = Math.max(2, bodySize * 0.15);
-        catGraphics.beginFill(0xffffff);
-        catGraphics.drawCircle(centerX - bodySize * 0.2, centerY - bodySize * 0.1, eyeSize);
-        catGraphics.drawCircle(centerX + bodySize * 0.2, centerY - bodySize * 0.1, eyeSize);
-        catGraphics.endFill();
-        
-        // Eye pupils (slit-like for cat)
-        catGraphics.beginFill(0x000000);
-        catGraphics.drawEllipse(centerX - bodySize * 0.2, centerY - bodySize * 0.1, eyeSize * 0.7, eyeSize * 0.3);
-        catGraphics.drawEllipse(centerX + bodySize * 0.2, centerY - bodySize * 0.1, eyeSize * 0.7, eyeSize * 0.3);
-        catGraphics.endFill();
-        
-        // Nose (small pink triangle)
-        catGraphics.beginFill(0xff69b4);
-        catGraphics.moveTo(centerX, centerY + bodySize * 0.05);
-        catGraphics.lineTo(centerX - bodySize * 0.08, centerY + bodySize * 0.15);
-        catGraphics.lineTo(centerX + bodySize * 0.08, centerY + bodySize * 0.15);
-        catGraphics.closePath();
-        catGraphics.endFill();
-        
-        // Mouth (small lines)
-        catGraphics.lineStyle(1.5, 0x000000, 0.8);
-        catGraphics.moveTo(centerX, centerY + bodySize * 0.15);
-        catGraphics.lineTo(centerX - bodySize * 0.15, centerY + bodySize * 0.25);
-        catGraphics.moveTo(centerX, centerY + bodySize * 0.15);
-        catGraphics.lineTo(centerX + bodySize * 0.15, centerY + bodySize * 0.25);
-        
-        // Tail (curved, cat-like)
-        catGraphics.lineStyle(Math.max(2, bodySize * 0.12), colorHex, 0.9);
-        catGraphics.moveTo(centerX - bodySize * 0.3, centerY + bodySize * 0.2);
-        catGraphics.quadraticCurveTo(
-            centerX - bodySize * 0.6, centerY + bodySize * 0.4,
-            centerX - bodySize * 0.5, centerY + bodySize * 0.5
-        );
-        
-        catContainer.addChild(catGraphics);
-        this.graphics.addToLayer(catContainer, 'foreground');
-        return catContainer;
-    }
-    
-    gameLoop(timeOrDelta) {
+
+    // --- Loop / update -----------------------------------------------------
+
+    gameLoop(deltaTime) {
         if (this.isDestroyed) return;
-        
-        this.debugFrameCount++;
-        
-        let deltaTime;
-        if (this.isPreview) {
-            // Preview mode: timeOrDelta is a timestamp from requestAnimationFrame
-            if (this.lastTime === 0) {
-                this.lastTime = timeOrDelta;
-                return;
-            }
-            deltaTime = timeOrDelta - this.lastTime;
-            this.lastTime = timeOrDelta;
-            // Cap deltaTime to prevent huge jumps
-            deltaTime = Math.min(Math.max(deltaTime, 1), 100);
-        } else {
-            // Main game: timeOrDelta is already deltaTime in milliseconds from ticker
-            deltaTime = timeOrDelta || 16.67;
-            // Cap deltaTime to prevent huge jumps
-            deltaTime = Math.min(Math.max(deltaTime, 1), 100);
-        }
-        
-        // Log every 60 frames (once per second at 60fps)
-        if (this.debugFrameCount % 60 === 0) {
-        }
-        
         this.animationTime += deltaTime;
-        
+
         try {
             if (this.gameState === 'playing') {
                 this.update(deltaTime);
@@ -1009,711 +996,542 @@ class MousePacmanGame {
                 if (this.readyTimer >= this.readyDuration) {
                     this.gameState = 'playing';
                     this.readyTimer = 0;
+                    this.updateOverlay();
                 }
             }
-            
-            // Update particles in preview mode
-            if (this.isPreview && this.particles) {
-                this.particles.update();
-            }
-            
-            this.draw();
-        } catch (error) {
-            console.error('Error in game loop:', error);
-            console.error('Stack:', error.stack);
-            // Try to recover by resetting state
-            if (this.gameState === 'playing') {
-                this.gameState = 'ready';
-            }
-        }
-        
-        // Continue animation loop only for preview mode
-        // Main game uses PixiJS ticker which calls this automatically
-        if (this.isPreview) {
-            this.animationFrameId = requestAnimationFrame(this.gameLoop);
+
+            this.draw(deltaTime);
+        } catch (err) {
+            console.error('Mousetrap loop error:', err);
+            if (this.gameState === 'playing') this.gameState = 'ready';
         }
     }
-    
+
     update(deltaTime) {
-        if (this.gameState !== 'playing') return;
-        
-        // Safety check
-        if (!deltaTime || isNaN(deltaTime) || deltaTime <= 0) {
-            console.warn('Invalid deltaTime:', deltaTime);
-            deltaTime = 16.67;
-        }
-        
-        try {
-            // Update power mode timer
-            if (this.powerModeActive) {
-                this.powerModeTimer += deltaTime;
-                if (this.powerModeTimer >= this.powerModeDuration) {
-                    this.powerModeActive = false;
-                    this.powerModeTimer = 0;
-                    if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'alert');
-                    // Reset cat states
-                    this.cats.forEach(cat => {
-                        if (cat && cat.state === 'frightened') {
-                            cat.state = 'chase';
-                        }
-                    });
-                }
-            }
-            
-            // Update mouse movement (grid-based)
-            this.updateMouse(deltaTime);
-            
-            // Update cats (grid-based)
-            this.updateCats(deltaTime);
-            
-            // Check collisions
-            this.checkCollisions();
-            
-            // Debug: Log cat positions every 120 frames (2 seconds)
-            if (this.debugUpdateCount % 120 === 0 && this.cats) {
-                this.cats.forEach((cat, idx) => {
-                    if (cat) {
-                        const posKey = `${cat.x},${cat.y}`;
-                        if (this.debugLastCatPositions[idx] === posKey) {
-                            this.debugCatStuckCount[idx] = (this.debugCatStuckCount[idx] || 0) + 1;
-                            if (this.debugCatStuckCount[idx] > 5) {
-                                console.warn(`[Cat ${idx}] STUCK at (${cat.x}, ${cat.y}) for ${this.debugCatStuckCount[idx]} checks! State: ${cat.state}, Dir: ${cat.direction}`);
-                            }
-                        } else {
-                            this.debugCatStuckCount[idx] = 0;
-                        }
-                        this.debugLastCatPositions[idx] = posKey;
-                    }
+        if (!deltaTime || isNaN(deltaTime) || deltaTime <= 0) deltaTime = 16.67;
+
+        if (this.powerModeActive) {
+            this.powerModeTimer += deltaTime;
+            if (this.powerModeTimer >= this.powerModeDuration) {
+                this.powerModeActive = false;
+                this.powerModeTimer = 0;
+                if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'alert');
+                this.cats.forEach((cat) => {
+                    if (cat && cat.state === 'frightened') cat.state = 'chase';
                 });
             }
-            
-            this.debugUpdateCount++;
-            
-            // Check win condition
-            if (this.cheeseCount === 0 && this.powerPelletCount === 0) {
-                this.nextLevel();
-            }
-        } catch (error) {
-            console.error('Error in update:', error);
-            console.error('deltaTime:', deltaTime);
-            console.error('gameState:', this.gameState);
-            console.error('Stack:', error.stack);
-            // Don't throw - log and try to recover
-            // Reset to safe state
-            if (this.gameState === 'playing') {
-                console.warn('Attempting recovery from update error...');
-                this.gameState = 'ready';
-                this.readyTimer = 0;
-            }
+        }
+
+        this.updateMouse(deltaTime);
+        this.updateCats(deltaTime);
+        this.checkCollisions();
+
+        if (this.cheeseCount === 0 && this.powerPelletCount === 0) {
+            this.nextLevel();
         }
     }
-    
+
     updateMouse(deltaTime) {
         const mouse = this.mouse;
-        
-        // Simple grid-based movement
         mouse.moveTimer += deltaTime;
-        
-        // Try to change direction if buffered
+
+        // Re-try buffered side turn every frame (intersection / opening)
         if (mouse.nextDirection !== mouse.direction) {
             if (this.canMoveInDirection(mouse.x, mouse.y, mouse.nextDirection)) {
                 mouse.direction = mouse.nextDirection;
             }
         }
-        
-        // Move one tile at a time
+
         if (mouse.moveTimer >= mouse.moveDelay) {
             mouse.moveTimer = 0;
-            
-            // Calculate next position
+
+            // Prefer buffered turn at the moment of stepping
+            if (mouse.nextDirection !== mouse.direction &&
+                this.canMoveInDirection(mouse.x, mouse.y, mouse.nextDirection)) {
+                mouse.direction = mouse.nextDirection;
+            }
+
             let nextX = mouse.x;
             let nextY = mouse.y;
-            
-            if (mouse.direction === 0) nextX++; // Right
-            else if (mouse.direction === 1) nextY++; // Down
-            else if (mouse.direction === 2) nextX--; // Left
-            else if (mouse.direction === 3) nextY--; // Up
-            
-            // Handle tunnel wraparound - instant teleport when crossing boundaries in tunnel row
+            if (mouse.direction === 0) nextX++;
+            else if (mouse.direction === 1) nextY++;
+            else if (mouse.direction === 2) nextX--;
+            else if (mouse.direction === 3) nextY--;
+
             if (mouse.y === this.tunnelRow) {
-                // In tunnel row - allow wraparound at boundaries
-                if (mouse.direction === 2 && nextX < 0) {
-                    // Moving left, going off left edge - wrap to right side
-                    nextX = this.mazeCols - 1;
-                    nextY = mouse.y; // Keep same row
-                } else if (mouse.direction === 0 && nextX >= this.mazeCols) {
-                    // Moving right, going off right edge - wrap to left side
-                    nextX = 0;
-                    nextY = mouse.y; // Keep same row
-                }
+                if (mouse.direction === 2 && nextX < 0) nextX = this.mazeCols - 1;
+                else if (mouse.direction === 0 && nextX >= this.mazeCols) nextX = 0;
             }
-            
-            // Check if can move (isValidCell handles tunnel wraparound)
+
             if (this.isValidCell(nextX, nextY)) {
                 mouse.x = nextX;
                 mouse.y = nextY;
-                
-                // Check cheese collection
                 this.checkCheeseCollection(mouse.x, mouse.y);
-                
-                // Animate mouth
-                mouse.mouthFrameTime += deltaTime;
-                if (mouse.mouthFrameTime > 150) {
-                    mouse.mouthFrame = (mouse.mouthFrame + 1) % 2;
-                    mouse.mouthFrameTime = 0;
-                }
             }
+            // Hit a wall: stay put and keep facing — reverse/turn still work
         }
-        
-        // Animate mouth even when not moving
+
         mouse.mouthFrameTime += deltaTime;
         if (mouse.mouthFrameTime > 150) {
             mouse.mouthFrame = (mouse.mouthFrame + 1) % 2;
             mouse.mouthFrameTime = 0;
         }
+
+        const target = this.cellToWorld(mouse.x, mouse.y);
+        const lerp = Math.min(1, deltaTime / mouse.moveDelay);
+        mouse.worldX += (target.x - mouse.worldX) * Math.max(0.18, lerp);
+        mouse.worldZ += (target.z - mouse.worldZ) * Math.max(0.18, lerp);
+        const yawTarget = this.dirToYaw(mouse.direction);
+        mouse.facing = this.lerpAngle(mouse.facing, yawTarget, 0.28);
     }
-    
-    isValidCell(x, y) {
-        // Safety checks
-        if (!this.maze || !Array.isArray(this.maze)) {
-            console.error('Maze array is invalid!');
-            return false;
-        }
-        
-        // Y bounds check
-        if (y < 0 || y >= this.mazeRows) return false;
-        
-        // Check if we're in tunnel row and trying to wraparound
-        const isTunnelRow = (y === this.tunnelRow);
-        let actualX = x;
-        
-        // Handle X wraparound for tunnel - allow wrapping if in tunnel row
-        if (x < 0) {
-            if (isTunnelRow) {
-                // In tunnel row - wrap to right side
-                actualX = this.mazeCols - 1;
-            } else {
-                return false;
-            }
-        } else if (x >= this.mazeCols) {
-            if (isTunnelRow) {
-                // In tunnel row - wrap to left side
-                actualX = 0;
-            } else {
-                return false;
-            }
-        }
-        
-        // Safety check for maze row
-        if (!this.maze[y] || !Array.isArray(this.maze[y])) {
-            console.error(`Maze row ${y} is invalid!`);
-            return false;
-        }
-        
-        // Safety check for maze bounds after wraparound
-        if (actualX < 0 || actualX >= this.mazeCols) return false;
-        if (this.maze[y][actualX] === undefined) return false;
-        
-        // Check if cell is a wall
-        return this.maze[y][actualX] !== 1;
-    }
-    
-    canMoveInDirection(x, y, direction) {
-        // Normalize x if needed (for checking current position)
-        if (x < 0) x = this.mazeCols - 1;
-        if (x >= this.mazeCols) x = 0;
-        if (y < 0 || y >= this.mazeRows) return false;
-        
-        // Calculate target cell based on direction
-        let targetX = x;
-        let targetY = y;
-        
-        if (direction === 0) targetX = x + 1; // Right
-        else if (direction === 1) targetY = y + 1; // Down
-        else if (direction === 2) targetX = x - 1; // Left
-        else if (direction === 3) targetY = y - 1; // Up
-        
-        // Check if we're in tunnel row and trying to wrap
-        const isTunnelRow = (y === this.tunnelRow);
-        
-        // Allow wraparound if in tunnel row and moving left/right out of bounds
-        if (isTunnelRow && direction === 2 && targetX < 0) {
-            // Moving left, wrapping to right
-            return true;
-        }
-        if (isTunnelRow && direction === 0 && targetX >= this.mazeCols) {
-            // Moving right, wrapping to left
-            return true;
-        }
-        
-        // Check if target cell is valid (this handles wraparound for tunnel)
-        return this.isValidCell(targetX, targetY);
-    }
-    
-    checkCheeseCollection(x, y) {
-        // Handle wraparound
-        if (x < 0) x = this.mazeCols - 1;
-        if (x >= this.mazeCols) x = 0;
-        if (y < 0 || y >= this.mazeRows) return;
-        
-        // Safety check
-        if (!this.maze || !this.maze[y] || this.maze[y][x] === undefined) return;
-        
-        const cell = this.maze[y][x];
-        
-        if (cell === 2) { // Small cheese
-            this.maze[y][x] = 0;
-            this.cheeseCount--;
-            this.score += 10;
-            
-            // Particle effect (only in preview mode for now)
-            if (this.isPreview && this.particles) {
-                const screenX = this.mazeX + x * this.tileSize + this.tileSize / 2;
-                const screenY = this.mazeY + y * this.tileSize + this.tileSize / 2;
-                this.particles.explode(screenX, screenY, 3, '#ffff00', 'spark');
-            }
-            
-            if (!this.isPreview) {
-                this.updateCheeseSprites();
-            }
-            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'chomp');
-        } else if (cell === 3) { // Power pellet
-            this.maze[y][x] = 0;
-            this.powerPelletCount--;
-            this.score += 50;
-            this.activatePowerMode();
-            
-            // Particle effect (only in preview mode for now)
-            if (this.isPreview && this.particles) {
-                const screenX = this.mazeX + x * this.tileSize + this.tileSize / 2;
-                const screenY = this.mazeY + y * this.tileSize + this.tileSize / 2;
-                this.particles.explode(screenX, screenY, 10, '#ffff00', 'glow');
-            }
-            
-            if (!this.isPreview) {
-                this.updateCheeseSprites();
-                if (this.screenEffects) {
-                    this.screenEffects.flash('#ffff00', 10, 0.5);
-                }
-            }
-        }
-    }
-    
-    activatePowerMode() {
-        this.powerModeActive = true;
-        this.powerModeTimer = 0;
-        this.catsEatenThisPower = 0; // Reset counter
-        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'power');
-        
-        // Make all cats frightened
-        if (this.cats) {
-            this.cats.forEach(cat => {
-                if (cat && cat.state !== 'eaten') {
-                    cat.state = 'frightened';
-                    // Reverse direction
-                    cat.direction = (cat.direction + 2) % 4;
-                }
-            });
-        }
-    }
-    
+
     updateCats(deltaTime) {
-        if (!this.cats || !Array.isArray(this.cats)) return;
-        
         this.cats.forEach((cat, index) => {
             if (!cat) return;
-            
-            // Handle eaten state
+
             if (cat.state === 'eaten') {
-                if (!cat.respawnTimer) {
-                    cat.respawnTimer = 3000; // 3 seconds
-                }
+                if (cat.respawnTimer == null) cat.respawnTimer = 2800;
                 cat.respawnTimer -= deltaTime;
                 if (cat.respawnTimer <= 0) {
-                    // Respawn
-                    const startPositions = [
-                        { x: 13, y: 11 }, { x: 14, y: 11 },
-                        { x: 13, y: 20 }, { x: 14, y: 20 }
+                    const starts = [
+                        { x: 1, y: 1 }, { x: 26, y: 1 }, { x: 14, y: 11 }
                     ];
-                    const pos = startPositions[index] || { x: 14, y: 14 };
+                    const pos = starts[index] || { x: 14, y: 11 };
                     cat.x = pos.x;
                     cat.y = pos.y;
-                    cat.state = 'chase';
+                    cat.state = 'scatter';
+                    cat.scatterTimer = this.getDifficulty().introScatterMs;
                     cat.respawnTimer = null;
                     cat.moveTimer = 0;
+                    this.syncWorldFromGrid(cat);
                 }
-                return; // Don't move when eaten
+                return;
             }
-            
-            // Grid-based movement
+
+            // Scatter ↔ chase cadence (gives the player breathing room)
+            if (cat.state === 'scatter' || cat.state === 'chase') {
+                const diff = this.getDifficulty();
+                cat.scatterTimer = (cat.scatterTimer || 0) - deltaTime;
+                if (cat.scatterTimer <= 0) {
+                    if (cat.state === 'scatter') {
+                        cat.state = 'chase';
+                        cat.scatterTimer = diff.chaseMs + index * 400;
+                    } else {
+                        cat.state = 'scatter';
+                        cat.scatterTimer = diff.scatterMs + index * 300;
+                    }
+                }
+            }
+
             cat.moveTimer += deltaTime;
-            
             if (cat.moveTimer >= cat.moveDelay) {
                 cat.moveTimer = 0;
-                
-                // Choose direction based on state
-                if (cat.state === 'frightened') {
-                    this.chooseRandomDirection(cat);
-                } else {
-                    this.chooseChaseDirection(cat, index);
-                }
-                
-                // Move in chosen direction
+                if (cat.state === 'frightened') this.chooseFleeDirection(cat);
+                else this.chooseCatDirection(cat, index);
+
                 let nextX = cat.x;
                 let nextY = cat.y;
-                
                 if (cat.direction === 0) nextX++;
                 else if (cat.direction === 1) nextY++;
                 else if (cat.direction === 2) nextX--;
                 else if (cat.direction === 3) nextY--;
-                
-                // Handle tunnel wraparound - instant teleport when crossing boundaries in tunnel row
+
                 if (cat.y === this.tunnelRow) {
-                    // In tunnel row - allow wraparound at boundaries
-                    if (cat.direction === 2 && cat.x === 0) {
-                        // Moving left from column 0 - wrap to right side
-                        nextX = this.mazeCols - 1;
-                    } else if (cat.direction === 0 && cat.x === this.mazeCols - 1) {
-                        // Moving right from last column - wrap to left side
-                        nextX = 0;
-                    }
+                    if (cat.direction === 2 && cat.x === 0) nextX = this.mazeCols - 1;
+                    else if (cat.direction === 0 && cat.x === this.mazeCols - 1) nextX = 0;
                 }
-                
-                // Move if valid
+
                 if (this.isValidCell(nextX, nextY)) {
                     cat.x = nextX;
                     cat.y = nextY;
                 }
             }
+
+            const target = this.cellToWorld(cat.x, cat.y);
+            const lerp = Math.min(1, deltaTime / cat.moveDelay);
+            cat.worldX += (target.x - cat.worldX) * Math.max(0.12, lerp);
+            cat.worldZ += (target.z - cat.worldZ) * Math.max(0.12, lerp);
+            cat.facing = this.lerpAngle(cat.facing, this.dirToYaw(cat.direction), 0.15);
         });
     }
-    
-    
-    chooseChaseDirection(cat, index) {
-        // Simple AI: pick direction toward mouse, but don't get stuck
-        const targetX = this.mouse.x;
-        const targetY = this.mouse.y;
-        
-        // Find valid directions
+
+    lerpAngle(a, b, t) {
+        let diff = b - a;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        return a + diff * t;
+    }
+
+    isValidCell(x, y) {
+        if (!this.maze || !Array.isArray(this.maze)) return false;
+        if (y < 0 || y >= this.mazeRows) return false;
+        const isTunnelRow = y === this.tunnelRow;
+        let actualX = x;
+        if (x < 0) {
+            if (!isTunnelRow) return false;
+            actualX = this.mazeCols - 1;
+        } else if (x >= this.mazeCols) {
+            if (!isTunnelRow) return false;
+            actualX = 0;
+        }
+        if (!this.maze[y] || this.maze[y][actualX] === undefined) return false;
+        return this.maze[y][actualX] !== 1;
+    }
+
+    canMoveInDirection(x, y, direction) {
+        if (x < 0) x = this.mazeCols - 1;
+        if (x >= this.mazeCols) x = 0;
+        if (y < 0 || y >= this.mazeRows) return false;
+
+        let targetX = x;
+        let targetY = y;
+        if (direction === 0) targetX = x + 1;
+        else if (direction === 1) targetY = y + 1;
+        else if (direction === 2) targetX = x - 1;
+        else if (direction === 3) targetY = y - 1;
+
+        if (y === this.tunnelRow && direction === 2 && targetX < 0) return true;
+        if (y === this.tunnelRow && direction === 0 && targetX >= this.mazeCols) return true;
+        return this.isValidCell(targetX, targetY);
+    }
+
+    checkCheeseCollection(x, y) {
+        if (x < 0) x = this.mazeCols - 1;
+        if (x >= this.mazeCols) x = 0;
+        if (y < 0 || y >= this.mazeRows) return;
+        if (!this.maze[y] || this.maze[y][x] === undefined) return;
+
+        const cell = this.maze[y][x];
+        if (cell === 2) {
+            this.maze[y][x] = 0;
+            this.cheeseCount--;
+            this.score += 10;
+            this.removeCheeseMesh(x, y);
+            if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'chomp');
+        } else if (cell === 3) {
+            this.maze[y][x] = 0;
+            this.powerPelletCount--;
+            this.score += 50;
+            this.removeCheeseMesh(x, y);
+            this.activatePowerMode();
+        }
+    }
+
+    removeCheeseMesh(col, row) {
+        const key = `${col},${row}`;
+        const mesh = this.cheeseMeshes.get(key);
+        if (mesh) {
+            if (mesh.parent) mesh.parent.remove(mesh);
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) mesh.material.dispose();
+            this.cheeseMeshes.delete(key);
+        }
+    }
+
+    activatePowerMode() {
+        this.powerModeActive = true;
+        this.powerModeTimer = 0;
+        this.catsEatenThisPower = 0;
+        if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'power');
+        this.cats.forEach((cat) => {
+            if (cat && cat.state !== 'eaten') {
+                cat.state = 'frightened';
+                cat.direction = (cat.direction + 2) % 4;
+            }
+        });
+    }
+
+    getCatTarget(cat, index) {
+        const scatterCorners = [
+            { x: this.mazeCols - 2, y: 1 },
+            { x: 1, y: 1 },
+            { x: this.mazeCols - 2, y: this.mazeRows - 2 }
+        ];
+
+        if (cat.state === 'scatter') {
+            return scatterCorners[index % scatterCorners.length];
+        }
+
+        const mx = this.mouse.x;
+        const my = this.mouse.y;
+        const dv = this.dirVector(this.mouse.direction);
+
+        if (cat.personality === 'flank') {
+            // Aim a few tiles ahead of the mouse
+            return {
+                x: mx + dv.x * 4,
+                y: my + dv.z * 4
+            };
+        }
+        if (cat.personality === 'roam') {
+            // Loose pull toward mouse with noise — feels like patrolling
+            return {
+                x: mx + (Math.random() < 0.5 ? -5 : 5),
+                y: my + (Math.random() < 0.5 ? -3 : 3)
+            };
+        }
+        // chase personality: direct
+        return { x: mx, y: my };
+    }
+
+    chooseCatDirection(cat, index) {
         const possibleDirs = [];
+        const reverse = (cat.direction + 2) % 4;
         for (let dir = 0; dir < 4; dir++) {
-            if (this.canMoveInDirection(cat.x, cat.y, dir)) {
-                possibleDirs.push(dir);
+            if (dir === reverse) continue;
+            if (this.canMoveInDirection(cat.x, cat.y, dir)) possibleDirs.push(dir);
+        }
+        if (possibleDirs.length === 0) {
+            for (let dir = 0; dir < 4; dir++) {
+                if (this.canMoveInDirection(cat.x, cat.y, dir)) possibleDirs.push(dir);
             }
         }
-        
-        if (possibleDirs.length === 0) {
-            // Completely stuck - shouldn't happen, but pick random if it does
-            cat.direction = Math.floor(Math.random() * 4);
-            return;
-        }
-        
-        // If only one direction available, take it immediately
+        if (possibleDirs.length === 0) return;
         if (possibleDirs.length === 1) {
             cat.direction = possibleDirs[0];
             return;
         }
-        
-        // Choose direction closest to target
+
+        // Roamers often pick randomly so they don't dogpile
+        const bonus = this.getDifficulty().wanderBonus || 0;
+        const wanderChance = (cat.personality === 'roam' ? 0.55
+            : cat.personality === 'flank' ? 0.28
+            : 0.18) + bonus;
+        if (Math.random() < wanderChance) {
+            cat.direction = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
+            return;
+        }
+
+        const target = this.getCatTarget(cat, index);
         let bestDir = possibleDirs[0];
         let bestDist = Infinity;
-        
-        // Also track current direction if it's still valid (prefer continuing forward)
-        let currentDirValid = possibleDirs.includes(cat.direction);
-        
-        possibleDirs.forEach(dir => {
-            let testX = cat.x;
-            let testY = cat.y;
-            if (dir === 0) testX++;
-            else if (dir === 1) testY++;
-            else if (dir === 2) testX--;
-            else if (dir === 3) testY--;
-            
-            const dist = Math.abs(testX - targetX) + Math.abs(testY - targetY);
-            
-            // Prefer current direction if it's still good (reduces jitter)
-            // But if mouse hasn't moved much, occasionally explore
-            const preferCurrent = currentDirValid && dir === cat.direction;
-            const adjustedDist = preferCurrent ? dist * 0.8 : dist;
-            
-            if (adjustedDist < bestDist) {
-                bestDist = adjustedDist;
+        possibleDirs.forEach((dir) => {
+            let tx = cat.x;
+            let ty = cat.y;
+            if (dir === 0) tx++;
+            else if (dir === 1) ty++;
+            else if (dir === 2) tx--;
+            else if (dir === 3) ty--;
+            const dist = Math.abs(tx - target.x) + Math.abs(ty - target.y);
+            const prefer = dir === cat.direction ? dist * 0.82 : dist;
+            if (prefer < bestDist) {
+                bestDist = prefer;
                 bestDir = dir;
             }
         });
-        
         cat.direction = bestDir;
-        
-        // If cat can't move toward mouse effectively, occasionally pick random direction to explore
-        // This prevents cats from getting stuck when mouse stops
-        if (bestDist > 10 && Math.random() < 0.15) {
-            cat.direction = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
-        }
     }
-    
-    chooseRandomDirection(cat) {
-        // Random valid direction
+
+    chooseFleeDirection(cat) {
         const possibleDirs = [];
         for (let dir = 0; dir < 4; dir++) {
-            if (this.canMoveInDirection(cat.x, cat.y, dir)) {
-                possibleDirs.push(dir);
+            if (this.canMoveInDirection(cat.x, cat.y, dir)) possibleDirs.push(dir);
+        }
+        if (possibleDirs.length === 0) return;
+
+        let bestDir = possibleDirs[0];
+        let bestDist = -1;
+        possibleDirs.forEach((dir) => {
+            let tx = cat.x;
+            let ty = cat.y;
+            if (dir === 0) tx++;
+            else if (dir === 1) ty++;
+            else if (dir === 2) tx--;
+            else if (dir === 3) ty--;
+            const dist = Math.abs(tx - this.mouse.x) + Math.abs(ty - this.mouse.y);
+            if (dist > bestDist) {
+                bestDist = dist;
+                bestDir = dir;
             }
-        }
-        
-        if (possibleDirs.length > 0) {
-            cat.direction = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
-        }
+        });
+        // Occasional random flee so power mode isn't trivial
+        cat.direction = Math.random() < 0.25
+            ? possibleDirs[Math.floor(Math.random() * possibleDirs.length)]
+            : bestDir;
     }
-    
-    
+
     checkCollisions() {
-        // Safety checks
         if (!this.mouse || !this.cats) return;
-        if (isNaN(this.mouse.x) || isNaN(this.mouse.y)) return;
-        
-        // Check mouse-cat collisions - simple grid-based
-        this.cats.forEach((cat, index) => {
-            if (!cat) return;
-            if (cat.state === 'eaten') return;
-            if (isNaN(cat.x) || isNaN(cat.y)) return;
-            
-            // Simple grid collision - same tile = collision
+        this.cats.forEach((cat) => {
+            if (!cat || cat.state === 'eaten') return;
             if (cat.x === this.mouse.x && cat.y === this.mouse.y) {
                 if (cat.state === 'frightened') {
-                    // Mouse eats cat
                     cat.state = 'eaten';
-                    if (!this.catsEatenThisPower) this.catsEatenThisPower = 0;
-                    this.catsEatenThisPower++;
-                    const points = 200 * Math.pow(2, this.catsEatenThisPower - 1); // 200, 400, 800, 1600
-                    this.score += points;
-                    
-                    // Particle effect (only in preview mode for now)
-                    if (this.isPreview && this.particles) {
-                        const screenX = this.mazeX + cat.x * this.tileSize + this.tileSize / 2;
-                        const screenY = this.mazeY + cat.y * this.tileSize + this.tileSize / 2;
-                        this.particles.explode(screenX, screenY, 15, cat.color, 'glow');
-                    }
-                } else if (cat.state !== 'eaten') {
-                    // Mouse caught - lose life
+                    this.catsEatenThisPower = (this.catsEatenThisPower || 0) + 1;
+                    this.score += 200 * Math.pow(2, this.catsEatenThisPower - 1);
+                    if (typeof audioManager !== 'undefined') audioManager.playGameSfx('mouse-pacman', 'chomp');
+                } else {
                     this.loseLife();
                 }
             }
         });
     }
-    
+
     loseLife() {
         this.lives--;
-        
-        if (!this.isPreview && this.screenEffects) {
-            this.screenEffects.shake(10, 10);
-        }
-        
         if (this.lives <= 0) {
             this.gameOver();
-        } else {
-            // Reset positions
-            this.mouse.x = this.mouseStartPos.x;
-            this.mouse.y = this.mouseStartPos.y;
-            this.mouse.direction = 0;
-            this.mouse.moveTimer = 0;
-            
-            this.initializeCats();
-            this.powerModeActive = false;
-            this.powerModeTimer = 0;
-            this.gameState = 'ready';
-            this.readyTimer = 0;
+            return;
         }
-    }
-    
-    nextLevel() {
-        this.level++;
-        this.score += 1000; // Level bonus
-        
-        // Reset maze
-        this.initializeMaze();
-        
-        // Reset positions (will be set by initializeMaze via findMouseStartPosition)
+
         this.mouse.x = this.mouseStartPos.x;
         this.mouse.y = this.mouseStartPos.y;
-        this.mouse.direction = 0;
+        this.mouse.direction = 3;
+        this.mouse.nextDirection = 3;
         this.mouse.moveTimer = 0;
-        
-        // Increase speed slightly (lower delay = faster)
-        this.mouse.moveDelay = Math.max(100, this.mouse.moveDelay * 0.95);
-        this.cats.forEach(cat => {
-            cat.moveDelay = Math.max(120, cat.moveDelay * 0.95);
-        });
-        
-        // Reset cats
+        this.syncWorldFromGrid(this.mouse);
+        this.initializeCats();
+        this.buildCatMeshes();
+        this.powerModeActive = false;
+        this.powerModeTimer = 0;
+        this.gameState = 'ready';
+        this.readyTimer = 0;
+        this.snapCamera(true);
+        this.updateOverlay();
+    }
+
+    nextLevel() {
+        this.level++;
+        this.score += 1000;
+        this.initializeMaze();
+        this.mouse.x = this.mouseStartPos.x;
+        this.mouse.y = this.mouseStartPos.y;
+        this.mouse.direction = 3;
+        this.mouse.nextDirection = 3;
+        this.mouse.moveTimer = 0;
+        const diff = this.getDifficulty();
+        this.mouse.moveDelay = diff.mouseDelay;
+        this.baseCatDelay = Math.max(220, diff.catDelay);
+        this.syncWorldFromGrid(this.mouse);
+
         this.initializeCats();
         this.powerModeActive = false;
         this.powerModeTimer = 0;
         this.gameState = 'ready';
         this.readyTimer = 0;
-        
-        if (!this.isPreview) {
-            // Force recreation by removing old sprites first
-            if (this.mazeSprites && this.mazeSprites.length > 0) {
-                this.mazeSprites.forEach(sprite => {
-                    if (sprite && sprite.parent) {
-                        sprite.parent.removeChild(sprite);
-                        sprite.destroy();
-                    }
-                });
-                this.mazeSprites = [];
-            }
-            
-            if (this.cheeseContainer && this.cheeseSpriteMap) {
-                this.cheeseSpriteMap.forEach(sprite => {
-                    if (sprite && sprite.parent) {
-                        sprite.parent.removeChild(sprite);
-                        sprite.destroy();
-                    }
-                });
-                this.cheeseSpriteMap.clear();
-                if (this.cheeseContainer.parent) {
-                    this.cheeseContainer.parent.removeChild(this.cheeseContainer);
-                    this.cheeseContainer.destroy({ children: true });
-                }
-                this.cheeseContainer = null;
-            }
-            
-            // Recreate all sprites for new level
-            this.updateMazeSprites();
-            this.updateCheeseSprites();
-            this.updateMouseSprite();
-            this.updateCatSprites();
-        }
+        this.rebuildWorldGeometry();
+        this.snapCamera(true);
+        this.updateOverlay();
     }
-    
-    draw() {
-        if (this.isDestroyed) return;
-        
+
+    // --- Draw / camera -----------------------------------------------------
+
+    draw(deltaTime) {
         if (this.isPreview) {
-            this.drawCanvas2D();
+            this.drawPreview();
             return;
         }
-        
-        this.drawPixi();
-    }
-    
-    drawCanvas2D() {
-        // Canvas 2D rendering for preview
-        this.ctx.fillStyle = '#000000';
-        this.ctx.fillRect(0, 0, this.width, this.height);
-        
-        if (this.gameState === 'menu') {
-            this.drawMenu();
-            return;
-        }
-        
-        // Draw simple maze preview
-        this.ctx.strokeStyle = '#2121de';
-        this.ctx.lineWidth = 1;
-        for (let row = 0; row < Math.min(5, this.mazeRows); row++) {
-            for (let col = 0; col < Math.min(10, this.mazeCols); col++) {
-                if (this.maze[row][col] === 1) {
-                    const x = this.mazeX + col * this.tileSize;
-                    const y = this.mazeY + row * this.tileSize;
-                    this.ctx.fillStyle = '#2121de';
-                    this.ctx.fillRect(x, y, this.tileSize, this.tileSize);
-                } else if (this.maze[row][col] === 2) {
-                    const x = this.mazeX + col * this.tileSize + this.tileSize / 2;
-                    const y = this.mazeY + row * this.tileSize + this.tileSize / 2;
-                    this.ctx.fillStyle = '#ffff00';
-                    this.ctx.beginPath();
-                    this.ctx.arc(x, y, 1, 0, Math.PI * 2);
-                    this.ctx.fill();
-                }
-            }
-        }
-        
-        // Draw simple mouse preview (gray oval with ears)
-        const mouseX = this.mazeX + this.mouse.x * this.tileSize + this.tileSize / 2;
-        const mouseY = this.mazeY + this.mouse.y * this.tileSize + this.tileSize / 2;
-        const bodySize = this.tileSize / 3;
-        
-        this.ctx.fillStyle = '#c8c8c8';
-        this.ctx.beginPath();
-        this.ctx.ellipse(mouseX, mouseY, bodySize * 0.9, bodySize * 0.7, 0, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        // Ears
-        this.ctx.fillStyle = '#808080';
-        this.ctx.beginPath();
-        this.ctx.arc(mouseX - bodySize * 0.4, mouseY - bodySize * 0.4, bodySize * 0.3, 0, Math.PI * 2);
-        this.ctx.fill();
-        this.ctx.beginPath();
-        this.ctx.arc(mouseX + bodySize * 0.4, mouseY - bodySize * 0.4, bodySize * 0.3, 0, Math.PI * 2);
-        this.ctx.fill();
-    }
-    
-    drawPixi() {
-        if (this.isPreview || !this.graphics || !this.graphics.isInitialized) return;
-        
-        // Maze and cheese should always be visible (background layer)
-        // Only update if sprites don't exist yet
-        if (!this.mazeSprites || this.mazeSprites.length === 0) {
-            this.updateMazeSprites();
-        }
-        if (!this.cheeseContainer || !this.cheeseSpriteMap || this.cheeseSpriteMap.size === 0) {
-            this.updateCheeseSprites();
-        }
-        
-        // Update sprites (only if playing or ready)
-        if (this.gameState === 'playing' || this.gameState === 'ready') {
-            this.updateMouseSprite();
-            this.updateCatSprites();
-            // Update cheese sprites for pulsing power pellets
-            this.updateCheeseSprites();
-        }
-        
-        // Draw UI
-        this.drawUIPixi();
-    }
-    
-    drawUIPixi() {
-        if (this.isPreview || !this.graphics) return;
-        
-        // Update stats panel instead of drawing on canvas
+        if (!this.graphics?.isInitialized) return;
+
+        this.updateMouseMesh(deltaTime || 16);
+        this.updateCatMeshes(deltaTime || 16);
+        this.pulsePowerPellets();
+        this.updateCamera(deltaTime || 16);
+        this.drawMinimap();
         this.updateStatsPanel();
-        
-        const uiLayer = this.graphics.getLayer('ui');
-        if (!uiLayer) return;
-        
-        // Remove existing game state messages
-        const children = uiLayer.children.slice();
-        children.forEach(child => {
-            if (child.userData && child.userData.isGameStateMessage) {
-                uiLayer.removeChild(child);
+        this.updateOverlay();
+    }
+
+    updateMouseMesh() {
+        if (!this.mouseMesh) return;
+        this.mouseMesh.position.set(this.mouse.worldX, 0, this.mouse.worldZ);
+        this.mouseMesh.rotation.y = this.mouse.facing;
+        this.mouseMesh.rotation.x = 0;
+        const bob = Math.sin(this.animationTime / 120) * 0.04;
+        this.mouseMesh.position.y = bob;
+    }
+
+    updateCatMeshes() {
+        this.cats.forEach((cat, i) => {
+            const mesh = this.catMeshes[i];
+            if (!mesh || !cat) return;
+            mesh.visible = cat.state !== 'eaten';
+            if (!mesh.visible) return;
+            mesh.position.set(cat.worldX, 0, cat.worldZ);
+            mesh.rotation.y = cat.facing;
+            mesh.position.y = Math.sin(this.animationTime / 140 + i) * 0.03;
+
+            if (mesh.userData.fur) {
+                if (cat.state === 'frightened') {
+                    const flash = Math.floor(this.animationTime / 200) % 2 === 0;
+                    mesh.userData.fur.color.setHex(flash ? 0x2121de : 0xffffff);
+                    mesh.userData.fur.emissive?.setHex?.(flash ? 0x111166 : 0x444444);
+                } else {
+                    mesh.userData.fur.color.setHex(mesh.userData.baseColor);
+                    if (mesh.userData.fur.emissive) mesh.userData.fur.emissive.setHex(0x000000);
+                }
             }
         });
-        
-        // Game state overlays
-        if (this.gameState === 'menu') {
-            this.drawMenuPixi(uiLayer);
-        } else if (this.gameState === 'gameOver') {
-            this.drawGameOverPixi(uiLayer);
-        } else if (this.gameState === 'paused') {
-            this.drawPausedPixi(uiLayer);
-        } else if (this.gameState === 'ready') {
-            this.drawReadyPixi(uiLayer);
+    }
+
+    pulsePowerPellets() {
+        this.cheeseMeshes.forEach((mesh) => {
+            if (!mesh.userData?.isPower) return;
+            const s = 1 + Math.sin(this.animationTime / 180) * 0.2;
+            mesh.scale.setScalar(s);
+            mesh.position.y = 0.55 + Math.sin(this.animationTime / 200) * 0.08;
+        });
+    }
+
+    snapCamera(instant) {
+        if (!this.graphics?.camera || !this._camTargetPos) return;
+        this.computeCameraTargets();
+        if (instant) {
+            this.graphics.camera.position.copy(this._camTargetPos);
+            this.graphics.camera.lookAt(this._camTargetLook);
+            this._camPos.copy(this._camTargetPos);
+            this._camLook.copy(this._camTargetLook);
         }
     }
-    
+
+    computeCameraTargets() {
+        const dv = this.dirVector(this.mouse.direction);
+        // Slightly elevated chase cam — reads upcoming turns without feeling floaty
+        const behind = 6.2;
+        const height = 4.1;
+        const lookAhead = 3.0;
+        this._camTargetPos.set(
+            this.mouse.worldX - dv.x * behind,
+            height,
+            this.mouse.worldZ - dv.z * behind
+        );
+        this._camTargetLook.set(
+            this.mouse.worldX + dv.x * lookAhead,
+            0.45,
+            this.mouse.worldZ + dv.z * lookAhead
+        );
+    }
+
+    updateCamera(deltaTime) {
+        if (!this.graphics?.camera) return;
+        this.computeCameraTargets();
+        const t = Math.min(1, (deltaTime || 16) / 180);
+        this._camPos.lerp(this._camTargetPos, t);
+        this._camLook.lerp(this._camTargetLook, t);
+        this.graphics.camera.position.copy(this._camPos);
+        this.graphics.camera.lookAt(this._camLook);
+        this.graphics.camera.near = 0.2;
+        this.graphics.camera.far = 200;
+        this.graphics.camera.fov = 55;
+        this.graphics.camera.updateProjectionMatrix();
+    }
+
     updateStatsPanel() {
         const statsPanel = document.getElementById('game-stats-panel');
         if (!statsPanel) return;
-        
         const statsContent = statsPanel.querySelector('.stats-content');
         if (!statsContent) return;
-        
-        const highScore = highScoreManager.getTopScore('mouse-pacman');
+
+        const highScore = typeof highScoreManager !== 'undefined'
+            ? highScoreManager.getTopScore('mouse-pacman')
+            : 0;
         let livesHTML = '';
-        for (let i = 0; i < this.lives; i++) {
-            livesHTML += '● ';
-        }
-        
+        for (let i = 0; i < this.lives; i++) livesHTML += '● ';
+
+        const powerLeft = this.powerModeActive
+            ? Math.max(0, Math.ceil((this.powerModeDuration - this.powerModeTimer) / 1000))
+            : 0;
+
         statsContent.innerHTML = `
             <div class="stat-item">
                 <div class="stat-label">Score</div>
@@ -1725,289 +1543,67 @@ class MousePacmanGame {
             </div>
             <div class="stat-item">
                 <div class="stat-label">Lives</div>
-                <div class="stat-value">${livesHTML}</div>
+                <div class="stat-value">${livesHTML || '—'}</div>
             </div>
             <div class="stat-item">
                 <div class="stat-label">Level</div>
                 <div class="stat-value">${this.level}</div>
             </div>
+            ${this.powerModeActive ? `
+            <div class="stat-item">
+                <div class="stat-label">Power</div>
+                <div class="stat-value">${powerLeft}s</div>
+            </div>` : ''}
         `;
     }
-    
-    drawUIPixi() {
-        if (this.isPreview || !this.graphics) return;
-        
-        // Update stats panel instead of drawing on canvas
-        this.updateStatsPanel();
-        
-        const uiLayer = this.graphics.getLayer('ui');
-        if (!uiLayer) return;
-        
-        // Remove existing game state messages
-        const children = uiLayer.children.slice();
-        children.forEach(child => {
-            if (child.userData && child.userData.isGameStateMessage) {
-                uiLayer.removeChild(child);
-            }
-        });
-        
-        // Game state overlays
-        if (this.gameState === 'menu') {
-            this.drawMenuPixi(uiLayer);
-        } else if (this.gameState === 'gameOver') {
-            this.drawGameOverPixi(uiLayer);
-        } else if (this.gameState === 'paused') {
-            this.drawPausedPixi(uiLayer);
-        } else if (this.gameState === 'ready') {
-            this.drawReadyPixi(uiLayer);
-        }
+
+    drawPreview() {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        ctx.fillStyle = '#000011';
+        ctx.fillRect(0, 0, this.width, this.height);
+
+        ctx.fillStyle = '#ffff00';
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('MOUSETRAP', this.width / 2, this.height / 2 - 8);
+        ctx.fillStyle = '#88aaff';
+        ctx.font = '10px Courier New';
+        ctx.fillText('3D Maze Chase', this.width / 2, this.height / 2 + 10);
     }
-    
-    drawMenuPixi(uiLayer) {
-        // Semi-transparent overlay so game is visible behind menu
-        const overlay = new PIXI.Graphics();
-        overlay.beginFill(0x000000, 0.7);
-        overlay.drawRect(0, 0, this.width, this.height);
-        overlay.endFill();
-        overlay.userData = { isGameStateMessage: true };
-        uiLayer.addChild(overlay);
-        
-        const titleStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 64,
-            fill: 0xffff00,
-            fontWeight: 'bold',
-            align: 'center'
-        });
-        
-        const title = new PIXI.Text('MOUSETRAP', titleStyle);
-        title.anchor.set(0.5);
-        title.x = this.width / 2;
-        title.y = this.height / 2 - 100;
-        title.userData = { isGameStateMessage: true };
-        uiLayer.addChild(title);
-        
-        const instructionStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 20,
-            fill: 0xffffff,
-            align: 'center'
-        });
-        
-        const instructions = [
-            'Press SPACE to Start',
-            'Arrow Keys: Move',
-            'Eat all the cheese!',
-            'Avoid the cats!'
-        ];
-        
-        instructions.forEach((text, i) => {
-            const instruction = new PIXI.Text(text, instructionStyle);
-            instruction.anchor.set(0.5);
-            instruction.x = this.width / 2;
-            instruction.y = this.height / 2 + i * 30;
-            instruction.userData = { isGameStateMessage: true };
-            uiLayer.addChild(instruction);
-        });
-    }
-    
-    drawGameOverPixi(uiLayer) {
-        const overlay = new PIXI.Graphics();
-        overlay.beginFill(0x000000, 0.8);
-        overlay.drawRect(0, 0, this.width, this.height);
-        overlay.endFill();
-        overlay.userData = { isGameStateMessage: true };
-        uiLayer.addChild(overlay);
-        
-        const gameOverStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 48,
-            fill: 0xff0000,
-            fontWeight: 'bold',
-            align: 'center'
-        });
-        
-        const gameOver = new PIXI.Text('GAME OVER', gameOverStyle);
-        gameOver.anchor.set(0.5);
-        gameOver.x = this.width / 2;
-        gameOver.y = this.height / 2 - 50;
-        gameOver.userData = { isGameStateMessage: true };
-        uiLayer.addChild(gameOver);
-        
-        const infoStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 24,
-            fill: 0xffffff,
-            align: 'center'
-        });
-        
-        const finalScore = new PIXI.Text(`Final Score: ${Utils.formatScore(this.score)}`, infoStyle);
-        finalScore.anchor.set(0.5);
-        finalScore.x = this.width / 2;
-        finalScore.y = this.height / 2 + 20;
-        finalScore.userData = { isGameStateMessage: true };
-        uiLayer.addChild(finalScore);
-        
-        const restartStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 18,
-            fill: 0xffff00,
-            align: 'center'
-        });
-        
-        const restart = new PIXI.Text('Press SPACE to Restart', restartStyle);
-        restart.anchor.set(0.5);
-        restart.x = this.width / 2;
-        restart.y = this.height / 2 + 80;
-        restart.userData = { isGameStateMessage: true };
-        uiLayer.addChild(restart);
-    }
-    
-    drawPausedPixi(uiLayer) {
-        const overlay = new PIXI.Graphics();
-        overlay.beginFill(0x000000, 0.7);
-        overlay.drawRect(0, 0, this.width, this.height);
-        overlay.endFill();
-        overlay.userData = { isGameStateMessage: true };
-        uiLayer.addChild(overlay);
-        
-        const pauseStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 48,
-            fill: 0xffff00,
-            fontWeight: 'bold',
-            align: 'center'
-        });
-        
-        const paused = new PIXI.Text('PAUSED', pauseStyle);
-        paused.anchor.set(0.5);
-        paused.x = this.width / 2;
-        paused.y = this.height / 2;
-        paused.userData = { isGameStateMessage: true };
-        uiLayer.addChild(paused);
-        
-        const resumeStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 18,
-            fill: 0xffffff,
-            align: 'center'
-        });
-        
-        const resume = new PIXI.Text('Press P to Resume', resumeStyle);
-        resume.anchor.set(0.5);
-        resume.x = this.width / 2;
-        resume.y = this.height / 2 + 40;
-        resume.userData = { isGameStateMessage: true };
-        uiLayer.addChild(resume);
-    }
-    
-    drawReadyPixi(uiLayer) {
-        const readyStyle = new PIXI.TextStyle({
-            fontFamily: 'Courier New',
-            fontSize: 36,
-            fill: 0xffff00,
-            fontWeight: 'bold',
-            align: 'center'
-        });
-        
-        const ready = new PIXI.Text('READY!', readyStyle);
-        ready.anchor.set(0.5);
-        ready.x = this.width / 2;
-        ready.y = this.height / 2;
-        ready.userData = { isGameStateMessage: true };
-        uiLayer.addChild(ready);
-    }
-    
-    drawMenu() {
-        this.ctx.fillStyle = '#000000';
-        this.ctx.fillRect(0, 0, this.width, this.height);
-        
-        this.ctx.fillStyle = '#ffff00';
-        this.ctx.font = 'bold 24px Courier New';
-        this.ctx.textAlign = 'center';
-        this.ctx.fillText('MOUSETRAP', this.width / 2, this.height / 2 - 20);
-        
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = '16px Courier New';
-        this.ctx.fillText('Press SPACE to Start', this.width / 2, this.height / 2 + 20);
-    }
-    
+
     cleanup() {
         this.isDestroyed = true;
-        
-        if (this.isPreview) {
-            if (this.animationFrameId !== null) {
-                cancelAnimationFrame(this.animationFrameId);
-            }
-        } else {
-            if (this.graphics) {
-                const ticker = this.graphics.getTicker();
-                if (ticker && this.tickerCallback) {
-                    ticker.remove(this.tickerCallback);
-                }
-                
-                if (this.graphics.app) {
-                    this.graphics.app.destroy(true, { children: true, texture: true, baseTexture: true });
-                }
-            }
-            
-            // Properly destroy sprites
-            if (this.mouseSprite) {
-                if (this.mouseSprite.parent) {
-                    this.mouseSprite.parent.removeChild(this.mouseSprite);
-                }
-                this.mouseSprite.destroy({ children: true });
-                this.mouseSprite = null;
-            }
-            
-            if (this.catSprites) {
-                this.catSprites.forEach(sprite => {
-                    if (sprite && sprite.parent) {
-                        sprite.parent.removeChild(sprite);
-                    }
-                    if (sprite) sprite.destroy({ children: true });
-                });
-                this.catSprites = [];
-            }
-            
-            if (this.cheeseContainer) {
-                if (this.cheeseSpriteMap) {
-                    this.cheeseSpriteMap.forEach(sprite => {
-                        if (sprite) sprite.destroy();
-                    });
-                    this.cheeseSpriteMap.clear();
-                }
-                if (this.cheeseContainer.parent) {
-                    this.cheeseContainer.parent.removeChild(this.cheeseContainer);
-                }
-                this.cheeseContainer.destroy({ children: true });
-                this.cheeseContainer = null;
-            }
-            
-            if (this.mazeSprites) {
-                this.mazeSprites.forEach(sprite => {
-                    if (sprite && sprite.parent) {
-                        sprite.parent.removeChild(sprite);
-                    }
-                    if (sprite) sprite.destroy();
-                });
-                this.mazeSprites = [];
-            }
+
+        if (this.graphics) {
+            const ticker = this.graphics.getTicker();
+            if (ticker && this.tickerCallback) ticker.remove(this.tickerCallback);
+            this.graphics.destroy();
+            this.graphics = null;
         }
-        
-        if (this.keydownHandler) {
-            document.removeEventListener('keydown', this.keydownHandler);
+
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
         }
-        if (this.keyupHandler) {
-            document.removeEventListener('keyup', this.keyupHandler);
+
+        if (this.stageEl && this.stageEl.parentElement) {
+            const parent = this.stageEl.parentElement;
+            if (this.canvas && this.stageEl.contains(this.canvas)) {
+                parent.insertBefore(this.canvas, this.stageEl);
+            }
+            parent.removeChild(this.stageEl);
         }
+        this.stageEl = null;
+        this.minimapCanvas = null;
+        this.minimapCtx = null;
+        this.overlayEl = null;
+
+        if (this.keydownHandler) document.removeEventListener('keydown', this.keydownHandler);
+        if (this.keyupHandler) document.removeEventListener('keyup', this.keyupHandler);
     }
 }
 
-// Initialize Mouse Pac-Man preview
 function initMousePacman() {
-    const canvas = document.getElementById('mouse-pacman-preview');
-    if (canvas) {
-        new MousePacmanGame(canvas);
-    }
+    // Lobby uses cover art — no live preview canvas needed
 }

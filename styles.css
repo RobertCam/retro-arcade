@@ -505,8 +505,10 @@ body {
     align-items: center;
     justify-content: center;
     flex: 1;
-    padding: 20px;
+    min-height: 0;
+    padding: 12px 20px;
     position: relative;
+    overflow: auto;
 }
 
 .game-stats-panel {
@@ -557,6 +559,7 @@ body {
     z-index: 1000;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .game-header {
@@ -610,11 +613,90 @@ body {
 /* Game Canvas */
 .game-canvas {
     display: block;
+    width: 800px;
+    height: 600px;
     border: 2px solid #00ffff;
     border-radius: 10px;
     background: #000;
     image-rendering: pixelated;
-    flex-shrink: 0;
+    flex-shrink: 1;
+}
+
+.game-canvas.three-canvas {
+    width: min(800px, calc(100vw - 280px));
+    height: auto;
+    aspect-ratio: 4 / 3;
+    max-height: calc(100dvh - 200px);
+    image-rendering: auto;
+}
+
+/* Mousetrap 3D stage + classic Pac-Man mini-map */
+.mousetrap-stage {
+    position: relative;
+    display: inline-block;
+    flex-shrink: 1;
+    line-height: 0;
+}
+
+.mousetrap-stage .game-canvas,
+.mousetrap-stage .game-canvas.three-canvas {
+    display: block;
+}
+
+.mousetrap-minimap {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 140px;
+    height: 155px;
+    border-radius: 6px;
+    box-shadow: 0 0 0 2px #2121de, 0 8px 24px rgba(0, 0, 0, 0.55);
+    background: #000008;
+    image-rendering: pixelated;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.mousetrap-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 2;
+    border-radius: 10px;
+}
+
+.mousetrap-overlay.visible {
+    opacity: 1;
+}
+
+.mousetrap-overlay-card {
+    text-align: center;
+    padding: 18px 28px;
+    max-width: 90%;
+}
+
+.mousetrap-overlay-title {
+    font-family: 'Courier New', monospace;
+    font-size: clamp(28px, 5vw, 48px);
+    font-weight: bold;
+    color: #ffff00;
+    text-shadow: 0 0 18px rgba(255, 255, 0, 0.45);
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+}
+
+.mousetrap-overlay-sub {
+    margin-top: 12px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: #e8e8ff;
+    line-height: 1.45;
 }
 
 /* Lobby audio control */
@@ -623,6 +705,12 @@ body {
     align-items: center;
     justify-content: center;
     gap: 16px;
+}
+
+.audio-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .mute-btn {
@@ -638,6 +726,12 @@ body {
 
 .mute-btn:hover {
     background: rgba(0, 255, 255, 0.25);
+}
+
+.mute-btn.is-off {
+    opacity: 0.45;
+    border-color: #668888;
+    color: #88aaaa;
 }
 
 /* Game loading overlay */
@@ -712,6 +806,7 @@ body {
 .touch-controls .touch-right { left: 72px; }
 
 .touch-controls .touch-down { position: absolute; bottom: 0; left: 144px; }
+.touch-controls .touch-up { position: absolute; bottom: 64px; left: 72px; }
 .touch-controls .touch-rotate { position: absolute; bottom: 0; right: 72px; }
 .touch-controls .touch-action,
 .touch-controls .touch-hardDrop {
@@ -761,5 +856,10 @@ body {
 
     .game-content-wrapper {
         flex-direction: column;
+    }
+
+    .game-canvas.three-canvas {
+        width: min(800px, calc(100vw - 32px));
+        max-height: calc(100dvh - 260px);
     }
 }
