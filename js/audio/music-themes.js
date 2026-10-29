@@ -469,6 +469,58 @@ const MUSIC_THEMES = {
                 ]
             }
         }
+    },
+
+    tidehold: {
+        bpm: 58,
+        steps: 64,
+        scale: [0, 2, 3, 5, 7, 8, 10],
+        root: 57,
+        volume: 0.05,
+        tracks: {
+            bass: {
+                wave: 'sine',
+                gain: 0.26,
+                pattern: [
+                    0, null, null, null, null, null, null, null,
+                    3, null, null, null, null, null, null, null,
+                    5, null, null, null, null, null, null, null,
+                    3, null, null, null, 0, null, null, null,
+                    0, null, null, null, null, null, null, null,
+                    2, null, null, null, null, null, null, null,
+                    5, null, null, null, null, null, null, null,
+                    7, null, null, null, 5, null, null, null
+                ]
+            },
+            arp: {
+                wave: 'triangle',
+                gain: 0.05,
+                pattern: [
+                    0, null, 3, null, 5, null, 7, null,
+                    5, null, 3, null, 0, null, 2, null,
+                    3, null, 5, null, 7, null, 8, null,
+                    7, null, 5, null, 3, null, 0, null,
+                    0, null, 2, null, 3, null, 5, null,
+                    7, null, 5, null, 3, null, 2, null,
+                    5, null, 7, null, 8, null, 7, null,
+                    5, null, 3, null, 2, null, 0, null
+                ]
+            },
+            lead: {
+                wave: 'sine',
+                gain: 0.09,
+                pattern: [
+                    null, null, 7, null, null, null, 5, null,
+                    null, null, 3, null, 5, null, null, null,
+                    8, null, null, null, 7, null, 5, null,
+                    null, null, 3, null, null, null, 0, null,
+                    null, null, 5, null, 7, null, null, null,
+                    8, null, 10, null, 8, null, 7, null,
+                    5, null, null, null, 3, null, null, null,
+                    2, null, null, null, 0, null, null, null
+                ]
+            }
+        }
     }
 };
 

@@ -295,6 +295,124 @@ const GAME_SOUND_PROFILES = {
                 { kind: 'tone', freq: 988, duration: 0.14, wave: 'sine', gain: 0.11, delay: 0.16 }
             ]
         }
+    },
+
+    tidehold: {
+        start: {
+            layers: [
+                { kind: 'tone', freq: 196, duration: 0.14, wave: 'sine', gain: 0.14 },
+                { kind: 'tone', freq: 247, duration: 0.14, wave: 'sine', gain: 0.13, delay: 0.1 },
+                { kind: 'tone', freq: 294, duration: 0.2, wave: 'triangle', gain: 0.14, delay: 0.2 },
+                { kind: 'noise', duration: 0.18, gain: 0.05, band: 280, filter: 'lowpass', delay: 0.05 }
+            ]
+        },
+        wave: {
+            layers: [
+                { kind: 'sweep', freq: 70, endFreq: 180, duration: 0.28, wave: 'sine', gain: 0.14 },
+                { kind: 'noise', duration: 0.22, gain: 0.09, band: 380, filter: 'lowpass' },
+                { kind: 'tone', freq: 110, duration: 0.18, wave: 'triangle', gain: 0.08, delay: 0.06 }
+            ]
+        },
+        select: {
+            layers: [
+                { kind: 'tone', freq: 520, duration: 0.04, wave: 'triangle', gain: 0.08 },
+                { kind: 'tone', freq: 690, duration: 0.05, wave: 'triangle', gain: 0.07, delay: 0.03 }
+            ]
+        },
+        build: {
+            layers: [
+                { kind: 'tone', freq: 280, duration: 0.05, wave: 'triangle', gain: 0.1 },
+                { kind: 'tone', freq: 420, duration: 0.07, wave: 'triangle', gain: 0.11, delay: 0.04 },
+                { kind: 'tone', freq: 560, duration: 0.1, wave: 'sine', gain: 0.1, delay: 0.09 },
+                { kind: 'noise', duration: 0.08, gain: 0.05, band: 900, filter: 'bandpass', delay: 0.02 }
+            ]
+        },
+        deny: {
+            layers: [
+                { kind: 'tone', freq: 180, duration: 0.08, wave: 'square', gain: 0.08 },
+                { kind: 'tone', freq: 140, duration: 0.1, wave: 'square', gain: 0.07, delay: 0.07 }
+            ]
+        },
+        specialize: {
+            layers: [
+                { kind: 'tone', freq: 392, duration: 0.07, wave: 'sine', gain: 0.11 },
+                { kind: 'tone', freq: 494, duration: 0.07, wave: 'sine', gain: 0.11, delay: 0.06 },
+                { kind: 'tone', freq: 587, duration: 0.12, wave: 'triangle', gain: 0.12, delay: 0.12 },
+                { kind: 'sweep', freq: 300, endFreq: 720, duration: 0.14, wave: 'sine', gain: 0.07, delay: 0.08 }
+            ]
+        },
+        upgrade: {
+            layers: [
+                { kind: 'tone', freq: 523, duration: 0.07, wave: 'sine', gain: 0.12 },
+                { kind: 'tone', freq: 659, duration: 0.09, wave: 'sine', gain: 0.12, delay: 0.06 },
+                { kind: 'tone', freq: 784, duration: 0.14, wave: 'triangle', gain: 0.11, delay: 0.13 }
+            ]
+        },
+        beacon: {
+            layers: [
+                { kind: 'sweep', freq: 1200, endFreq: 380, duration: 0.1, wave: 'sine', gain: 0.11 },
+                { kind: 'tone', freq: 880, duration: 0.05, wave: 'triangle', gain: 0.07 },
+                { kind: 'noise', duration: 0.04, gain: 0.035, band: 2500, filter: 'highpass' }
+            ]
+        },
+        mortar: {
+            layers: [
+                { kind: 'sweep', freq: 220, endFreq: 70, duration: 0.16, wave: 'triangle', gain: 0.13 },
+                { kind: 'noise', duration: 0.1, gain: 0.07, band: 450, filter: 'lowpass' },
+                { kind: 'tone', freq: 90, duration: 0.12, wave: 'sine', gain: 0.08 }
+            ]
+        },
+        splash: {
+            layers: [
+                { kind: 'noise', duration: 0.2, gain: 0.14, band: 650, filter: 'bandpass' },
+                { kind: 'tone', freq: 180, duration: 0.14, wave: 'sine', gain: 0.1 },
+                { kind: 'sweep', freq: 320, endFreq: 90, duration: 0.16, wave: 'triangle', gain: 0.08, delay: 0.02 }
+            ]
+        },
+        whirlpool: {
+            layers: [
+                { kind: 'sweep', freq: 140, endFreq: 90, duration: 0.18, wave: 'sine', gain: 0.09 },
+                { kind: 'noise', duration: 0.16, gain: 0.07, band: 320, filter: 'lowpass' },
+                { kind: 'tone', freq: 60, duration: 0.14, wave: 'triangle', gain: 0.07 }
+            ]
+        },
+        hit: {
+            layers: [
+                { kind: 'tone', freq: 480, duration: 0.05, wave: 'square', gain: 0.08 },
+                { kind: 'noise', duration: 0.06, gain: 0.055, band: 1400, filter: 'highpass' }
+            ]
+        },
+        kill: {
+            layers: [
+                { kind: 'noise', duration: 0.16, gain: 0.12, band: 550, filter: 'bandpass' },
+                { kind: 'sweep', freq: 280, endFreq: 70, duration: 0.18, wave: 'sine', gain: 0.11 },
+                { kind: 'tone', freq: 160, duration: 0.1, wave: 'triangle', gain: 0.07, delay: 0.04 }
+            ]
+        },
+        leak: {
+            layers: [
+                { kind: 'sweep', freq: 200, endFreq: 55, duration: 0.28, wave: 'sawtooth', gain: 0.13 },
+                { kind: 'noise', duration: 0.22, gain: 0.1, band: 320, filter: 'lowpass' },
+                { kind: 'tone', freq: 90, duration: 0.18, wave: 'sine', gain: 0.08, delay: 0.05 }
+            ]
+        },
+        waveClear: {
+            layers: [
+                { kind: 'tone', freq: 392, duration: 0.09, wave: 'sine', gain: 0.13 },
+                { kind: 'tone', freq: 494, duration: 0.09, wave: 'sine', gain: 0.13, delay: 0.08 },
+                { kind: 'tone', freq: 587, duration: 0.16, wave: 'sine', gain: 0.14, delay: 0.16 },
+                { kind: 'noise', duration: 0.12, gain: 0.04, band: 800, filter: 'bandpass', delay: 0.1 }
+            ]
+        },
+        victory: {
+            layers: [
+                { kind: 'tone', freq: 392, duration: 0.12, wave: 'sine', gain: 0.13 },
+                { kind: 'tone', freq: 494, duration: 0.12, wave: 'sine', gain: 0.13, delay: 0.1 },
+                { kind: 'tone', freq: 587, duration: 0.12, wave: 'sine', gain: 0.13, delay: 0.2 },
+                { kind: 'tone', freq: 784, duration: 0.24, wave: 'triangle', gain: 0.15, delay: 0.3 },
+                { kind: 'sweep', freq: 200, endFreq: 600, duration: 0.25, wave: 'sine', gain: 0.06, delay: 0.15 }
+            ]
+        }
     }
 };
 

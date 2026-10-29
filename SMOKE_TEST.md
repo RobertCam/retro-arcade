@@ -4,7 +4,7 @@ Run `npm run dev` and open http://localhost:8000 before testing.
 
 ## Lobby
 
-- [ ] All 7 cabinet cover images display (no broken images)
+- [ ] All cabinet cover images display (no broken images)
 - [ ] High score displays show for each cabinet
 - [ ] SCORES button opens modal with scores (or "No scores yet")
 - [ ] Mute button toggles audio on/off and persists after reload
@@ -13,7 +13,7 @@ Run `npm run dev` and open http://localhost:8000 before testing.
 - [ ] Clicking a cabinet opens the game
 - [ ] In-game actions produce clearer SFX (shoot/hit/break/etc., not flat beeps)
 
-## Per Game (repeat for each of 7 games)
+## Per Game (repeat for each game)
 
 - [ ] Game canvas renders (not blank)
 - [ ] Space starts the game from menu
@@ -33,6 +33,8 @@ Run `npm run dev` and open http://localhost:8000 before testing.
 5. Tetra Stack (tetris) — pieces fall and lock
 6. Mousetrap (mouse-pacman) — 3D third-person maze + mini-map; navigation works
 7. Mini Putt (minigolf) — drag to aim and shoot
+8. Star Siege / Circuit Breaker — as applicable
+9. Tidehold — Three.js TD; 1-3 map select, build on pads, Space waves, enemies follow path
 
 ## Mobile (optional)
 

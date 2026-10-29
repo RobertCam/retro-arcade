@@ -15,12 +15,14 @@ All music below is CC0 (public domain). Attribution optional but appreciated.
 | Mini Golf | Exploration Theme | CleytonKauffman / OpenGameArt | ~2:14 |
 | Star Siege (space-invaders) | SpaceWoblewobla | Gichco / OpenGameArt | ~4:21 |
 | Circuit Breaker | number + 8 | Gichco / OpenGameArt | ~3:06 |
+| Tidehold | Underwater Theme II | CleytonKauffman / OpenGameArt | ~1:45 |
 
 Sources:
 - https://opengameart.org/content/calm-track
 - https://opengameart.org/content/music-loops-0
 - https://opengameart.org/content/pack-of-loopable-game-music
 - https://opengameart.org/content/exploration-theme
+- https://opengameart.org/content/underwater-theme-ii
 
 ## Sound effects
 Kenney.nl — Interface Sounds, Digital Audio, Impact Sounds (CC0 1.0)

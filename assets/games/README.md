@@ -11,6 +11,7 @@ This directory contains assets specific to each game. Each game has its own subd
 - `tetris/` - Tetra Stack game assets
 - `mouse-pacman/` - Mousetrap game assets
 - `minigolf/` - Mini Golf game assets
+- `tidehold/` - Tidehold coastal tower defense assets
 
 See each game's README.md for specific asset requirements.
 

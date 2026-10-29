@@ -279,24 +279,32 @@ class AudioManager {
         if (!this.ctx) await this.unlock();
         if (!this.ctx || this.muted) return;
 
+        // Prefer procedural profile immediately when no file SFX exist yet —
+        // avoids 404 latency on every shot (Tidehold ships music-only assets).
+        const profile = typeof getGameSoundProfile !== 'undefined'
+            ? getGameSoundProfile(gameId, event)
+            : null;
+
         const candidates = [
             `assets/audio/games/${gameId}/${event}.ogg`,
             `assets/audio/games/${gameId}/${event}.wav`
         ];
-        for (const path of candidates) {
-            const buffer = await this.loadBuffer(path, { force: true });
-            if (buffer) {
-                const source = this.ctx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(this.sfxGain);
-                source.start();
-                return;
+        const anyCached = candidates.some((path) => this.bufferCache.has(path));
+        const allFailed = candidates.every((path) => this.failedBuffers.has(path));
+
+        if (!allFailed || anyCached) {
+            for (const path of candidates) {
+                const buffer = await this.loadBuffer(path, { force: true });
+                if (buffer) {
+                    const source = this.ctx.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(this.sfxGain);
+                    source.start();
+                    return;
+                }
             }
         }
 
-        const profile = typeof getGameSoundProfile !== 'undefined'
-            ? getGameSoundProfile(gameId, event)
-            : null;
         if (profile) {
             this.playProfileSound(profile);
             return;
@@ -462,7 +470,7 @@ class AudioManager {
         if (!this.ctx) await this.unlock();
         const ids = themeIds || [
             'lobby', 'breakout', 'jezzball', 'rivet-rage', 'tetris',
-            'mouse-pacman', 'minigolf', 'space-invaders', 'circuit-breaker'
+            'mouse-pacman', 'minigolf', 'space-invaders', 'circuit-breaker', 'tidehold'
         ];
         await Promise.all(ids.map(async (id) => {
             for (const path of this.musicCandidatesFor(id)) {

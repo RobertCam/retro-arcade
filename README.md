@@ -11,6 +11,7 @@ A lightweight, performant online retro arcade featuring classic games with moder
 - **Tetra Stack** (Tetris) — Classic tetromino puzzle action
 - **Mousetrap** (Mouse Pac-Man) — 3D third-person maze chase with cats, cheese, and a classic mini-map
 - **Mini Putt** (Mini Golf) — 18-hole mouse-aim golf
+- **Tidehold** — Three.js coastal tower defense across Breakwater, Kelp Gate, and Abyssal Stair
 
 ## Features
 
@@ -104,6 +105,15 @@ vercel
 - **Mouse**: Drag from ball to aim and set power
 - **Space**: Start
 - **P**: Pause
+
+### Tidehold
+- **Space**: Start campaign (Breakwater → Kelp Gate → Abyssal Stair) or skip wave countdown
+- **1 / 2 / 3**: Tower type (Beacon / Coral Mortar / Whirlpool)
+- **Click gold pad**: Build selected tower
+- **Select a tower**: Choose a specialize path (3 branches each), then empower that path
+- Waves auto-advance; maps chain after each shore is held
+- **P**: Pause
+- **R**: Return to menu
 
 ## Asset Pipeline
 

@@ -623,11 +623,18 @@ body {
 }
 
 .game-canvas.three-canvas {
-    width: min(800px, calc(100vw - 280px));
+    width: min(800px, calc(100vw - 300px));
     height: auto;
     aspect-ratio: 4 / 3;
-    max-height: calc(100dvh - 200px);
+    max-height: calc(100dvh - 260px);
     image-rendering: auto;
+    object-fit: contain;
+}
+
+/* Tidehold HUD must never steal canvas clicks (children default to pointer-events:auto) */
+#tidehold-overlay,
+#tidehold-overlay * {
+    pointer-events: none !important;
 }
 
 /* Mousetrap 3D stage + classic Pac-Man mini-map */

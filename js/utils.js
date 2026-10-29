@@ -77,7 +77,8 @@ class HighScoreManager {
             'mouse-pacman': [],
             minigolf: [],
             'space-invaders': [],
-            'circuit-breaker': []
+            'circuit-breaker': [],
+            tidehold: []
         };
     }
     

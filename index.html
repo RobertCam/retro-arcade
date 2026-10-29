@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Retro Arcade</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
     <script type="importmap">
     {
@@ -165,6 +166,24 @@
                     </div>
                 </div>
             </div>
+
+            <div class="arcade-cabinet" data-game="tidehold">
+                <div class="cabinet-marquee">
+                    <div class="marquee-text">TIDEHOLD</div>
+                </div>
+                <div class="cabinet-screen">
+                    <div class="game-cover-art">
+                        <img src="images/tidehold cover.jpg" alt="Tidehold" class="cover-image"
+                             onerror="this.style.display='none';this.parentElement.style.background='linear-gradient(180deg,#071820 0%,#0c4a55 55%,#1a3a40 100%)'">
+                    </div>
+                </div>
+                <div class="cabinet-controls">
+                    <div class="high-score-display">
+                        <div class="top-score">TOP: <span id="tidehold-score">0</span></div>
+                        <button class="scores-btn" data-game="tidehold">SCORES</button>
+                    </div>
+                </div>
+            </div>
         </main>
         
         <footer class="lobby-footer">
@@ -253,6 +272,8 @@
     <script src="js/games/circuit-breaker-gen.js"></script>
     <script src="js/games/circuit-breaker-levels.js"></script>
     <script src="js/games/circuit-breaker.js"></script>
+    <script src="js/games/tidehold-maps.js"></script>
+    <script src="js/games/tidehold.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>

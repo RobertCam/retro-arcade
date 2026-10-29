@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initMinigolf();
     initSpaceInvaders();
     initCircuitBreaker();
+    initTidehold();
 
     highScoreManager.updateDisplay('breakout');
     highScoreManager.updateDisplay('jezzball');
@@ -53,6 +54,7 @@ document.addEventListener('DOMContentLoaded', function() {
     highScoreManager.updateDisplay('minigolf');
     highScoreManager.updateDisplay('space-invaders');
     highScoreManager.updateDisplay('circuit-breaker');
+    highScoreManager.updateDisplay('tidehold');
 
     setupAudioControls();
     setupLobbyMusicOnGesture();
@@ -263,6 +265,7 @@ function closeGame() {
     highScoreManager.updateDisplay('minigolf');
     highScoreManager.updateDisplay('space-invaders');
     highScoreManager.updateDisplay('circuit-breaker');
+    highScoreManager.updateDisplay('tidehold');
 }
 
 function getGameTitle(gameName) {
@@ -274,7 +277,8 @@ function getGameTitle(gameName) {
         'mouse-pacman': 'Mousetrap',
         'minigolf': 'Mini Golf',
         'space-invaders': 'Star Siege',
-        'circuit-breaker': 'Circuit Breaker'
+        'circuit-breaker': 'Circuit Breaker',
+        'tidehold': 'Tidehold'
     };
     return titles[gameName] || 'Game';
 }
@@ -288,7 +292,8 @@ function getGameControls(gameName) {
         'mouse-pacman': '← → / A D: Turn | ↓ / S: Reverse | ↑ hold lane | Space: Start/Pause | P: Pause | R: Reset',
         'minigolf': 'Mouse: Drag from ball to aim and set power | Release to shoot | Space: Start | P: Pause',
         'space-invaders': '← →: Move | Space: Fire | P: Pause | R: Restart',
-        'circuit-breaker': 'Click: Rotate breaker | Arrows: Select | X/R: Rotate | Enter: Throw early | P: Pause'
+        'circuit-breaker': 'Click: Rotate breaker | Arrows: Select | X/R: Rotate | Enter: Throw early | P: Pause',
+        'tidehold': 'Space: Start campaign / skip countdown | 1-3: Tower type | Click gold pad: Build | Select tower to specialize | P: Pause | R: Menu'
     };
     return controls[gameName] || 'Check game instructions';
 }
@@ -323,6 +328,9 @@ function initializeGame(gameName) {
             break;
         case 'circuit-breaker':
             currentGameInstance = new CircuitBreakerGame(canvas);
+            break;
+        case 'tidehold':
+            currentGameInstance = new TideholdGame(canvas);
             break;
     }
 
